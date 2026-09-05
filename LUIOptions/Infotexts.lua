@@ -115,6 +115,7 @@ friendsArgs.Background = Opt:InlineGroup({name = "Friends Window Appearance", ar
 	Texture = Opt:MediaBackground({name = "Texture", db = db.Friends.Background}),
 	Color = Opt:Color({name = "Color", hasAlpha = true, db = db.Friends.Background,
 		disabled = DisableIfBackgroundTextured(db.Friends.Background)}),
+	BorderTexture = Opt:MediaBorder({name = "Border Texture", db = db.Friends.Background}),
 	Border = Opt:Color({name = "Border Color", hasAlpha = true, db = db.Friends.Background}),
 }})
 
@@ -132,6 +133,7 @@ guildArgs.Background = Opt:InlineGroup({name = "Guild Window Appearance", args =
 	Texture = Opt:MediaBackground({name = "Texture", db = db.Guild.Background}),
 	Color = Opt:Color({name = "Color", hasAlpha = true, db = db.Guild.Background,
 		disabled = DisableIfBackgroundTextured(db.Guild.Background)}),
+	BorderTexture = Opt:MediaBorder({name = "Border Texture", db = db.Guild.Background}),
 	Border = Opt:Color({name = "Border Color", hasAlpha = true, db = db.Guild.Background}),
 }})
 
