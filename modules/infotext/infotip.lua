@@ -222,6 +222,7 @@ end
 function module:ApplyInfotipBackdrop(frame, name)
 	local settings = module.db.profile[name] and module.db.profile[name].Background
 	local color = settings and settings.Color
+	local border = settings and settings.Border
 	local textureName = settings and settings.Texture or "Blizzard Tooltip"
 	local texture = Media:Fetch("background", textureName, true)
 	local useColorFill = textureName == "None" or not texture or texture == ""
@@ -233,6 +234,11 @@ function module:ApplyInfotipBackdrop(frame, name)
 	if frame.NineSlice and NineSliceUtil then
 		NineSliceUtil.ApplyLayoutByName(frame.NineSlice, "TooltipDefaultLayout")
 		NineSliceUtil.DisableSharpening(frame.NineSlice)
+		frame.NineSlice:SetBorderColor(
+			border and border.r or 1,
+			border and border.g or 1,
+			border and border.b or 1,
+			border and border.a or 1)
 		if frame.NineSlice.Center then
 			frame.NineSlice.Center:Hide()
 		end

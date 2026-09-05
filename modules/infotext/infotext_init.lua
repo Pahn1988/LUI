@@ -106,6 +106,7 @@ module.defaults = {
 			Background = {
 				Texture = "Blizzard Tooltip",
 				Color = { r = 1, g = 1, b = 1, a = 1, },
+				Border = { r = 1, g = 1, b = 1, a = 1, },
 			},
 		},
 		Gold = {
@@ -130,6 +131,7 @@ module.defaults = {
 			Background = {
 				Texture = "Blizzard Tooltip",
 				Color = { r = 1, g = 1, b = 1, a = 1, },
+				Border = { r = 1, g = 1, b = 1, a = 1, },
 			},
 		},
 		Instance = {
