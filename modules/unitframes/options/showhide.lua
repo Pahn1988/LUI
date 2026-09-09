@@ -241,6 +241,9 @@ local function ShowGroup(group)
 			frame:SetScale(1)
 			if group == "raid" then
 				PositionRaidFrame(frame, container, db, i)
+				if (i - 1) % 5 == 0 then
+					module:ConfigureRaidGroupLabel(frame, math.floor((i - 1) / 5) + 1, db.Width, "TOP", true)
+				end
 			else
 				PositionGroupFrame(frame, previous, db, i)
 			end

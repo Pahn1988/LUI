@@ -15,6 +15,9 @@ This release updates LUI for World of Warcraft Retail 12.1 while keeping the ori
 
 ## Unit frames
 
+- Added optional raid-group text to the player frame, with position, font, size and color settings. It is disabled by default, stays empty outside raids and follows the player's subgroup through roster and vehicle changes using the existing oUF group tag.
+- Added separate group labels to LUI raid frames, enabled by default. Labels follow each group's layout, stay outside the unit frames and hide for empty groups. Text scales to fit the narrower 40-player columns; font, color and distance from the frames are configurable.
+- Included both displays in unit-frame previews: the player preview shows a sample group number, and the raid preview labels its group columns. Added their controls to both Compact and Categorized options.
 - Added optional absorb text to each unit frame, with live shield totals, short/full numbers, prefix, font, color, opacity, position and an option to hide zero values, including when shield values are protected.
 - Updated absorb bars to extend from the current health fill and overlap filled health when needed, keeping shields visible at full health. Added an overflow indicator for shields exceeding maximum health and preserved existing absorb display settings.
 - Kept unit-frame backgrounds, bars and indicators on consistent layers so world nameplates cannot appear between them.

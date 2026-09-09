@@ -73,6 +73,83 @@ local function GetOpposite(dir)
 	end
 end
 
+local raidLabelHeaders = {}
+local raidLabelMedia = LibStub("LibSharedMedia-3.0")
+
+local function UpdateRaidGroupLabelVisibility(header)
+	local label = header.LUIGroupLabel
+	if not label then return end
+	local settings = module.db.profile.raid.GroupLabel
+	local first = header:GetAttribute("child1")
+	label:SetShown(settings and settings.Enable and IsInRaid() and first and first:IsShown() or false)
+end
+
+-- Only text visibility changes on roster events; secure header layout stays untouched.
+local raidLabelEvents = CreateFrame("Frame")
+raidLabelEvents:RegisterEvent("GROUP_ROSTER_UPDATE")
+raidLabelEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+raidLabelEvents:SetScript("OnEvent", function()
+	C_Timer.After(0, function()
+		for header in pairs(raidLabelHeaders) do
+			UpdateRaidGroupLabelVisibility(header)
+		end
+	end)
+end)
+
+function module:ConfigureRaidGroupLabel(anchor, group, width, point, preview)
+	local settings = self.db.profile.raid.GroupLabel
+	local label = anchor.LUIGroupLabel
+	if not settings or not settings.Enable then
+		if label then label:Hide() end
+		return
+	end
+	if not label then
+		label = anchor:CreateFontString(nil, "OVERLAY")
+		anchor.LUIGroupLabel = label
+		label:SetWordWrap(false)
+		label:SetNonSpaceWrap(false)
+		label:SetJustifyH("CENTER")
+		label:SetShadowColor(0, 0, 0, 1)
+		label:SetShadowOffset(1, -1)
+		if not preview then
+			raidLabelHeaders[anchor] = true
+			anchor:HookScript("OnShow", function(header)
+				C_Timer.After(0, function() UpdateRaidGroupLabelVisibility(header) end)
+			end)
+		end
+	end
+
+	label:SetFont(raidLabelMedia:Fetch("font", settings.Font), settings.Size, settings.Outline)
+	label:SetTextColor(settings.Color.r, settings.Color.g, settings.Color.b)
+	label:SetText(GROUP.." "..group)
+	label:SetWidth(0)
+	-- Fit the complete heading to narrow 40-player columns without overlapping its neighbour.
+	local textWidth = label:GetStringWidth()
+	if textWidth > width and width > 0 then
+		label:SetFont(raidLabelMedia:Fetch("font", settings.Font), settings.Size * width / textWidth, settings.Outline)
+	end
+	label:SetWidth(width)
+	label:ClearAllPoints()
+	local topOverflow, bottomOverflow = self.GetUnitFrameVerticalOverflow(self.db.profile.raid)
+	local spacing = settings.Spacing
+	-- Header point is the edge from which its children grow, not the screen anchor.
+	point = point or "TOP"
+	if point:find("TOP") then
+		label:SetPoint("BOTTOM", anchor, "TOP", 0, spacing + topOverflow)
+	elseif point:find("BOTTOM") then
+		label:SetPoint("TOP", anchor, "BOTTOM", 0, -spacing - bottomOverflow)
+	elseif point == "LEFT" then
+		label:SetPoint("RIGHT", anchor, "LEFT", -spacing, 0)
+	else
+		label:SetPoint("LEFT", anchor, "RIGHT", spacing, 0)
+	end
+	if preview then
+		label:Show()
+	else
+		UpdateRaidGroupLabelVisibility(anchor)
+	end
+end
+
 local pendingUnitToggles = {}
 local pendingToggleFrame = CreateFrame("Frame")
 
@@ -863,6 +940,15 @@ module.ToggleUnit = setmetatable({
 				end
 			end
 
+			for _, size in ipairs({25, 40}) do
+				local count = size == 25 and 5 or 8
+				local width = size == 25 and dbUnit.Width or (5 * dbUnit.Width - 3 * dbUnit.GroupPadding) / 8
+				for group = 1, count do
+					local header = _G["oUF_LUI_raid_"..size.."_"..group]
+					module:ConfigureRaidGroupLabel(header, group, width, header:GetAttribute("point"))
+				end
+			end
+
 		else
 			if oUF_LUI_raid then
 				for i = 1, 5 do
@@ -945,6 +1031,7 @@ module.ApplySettings = function(unit, force)
 				module.funcs.Info(frame, styleUnit, dbUnit)
 			end
 
+			module.funcs.RaidGroupText(frame, styleUnit, dbUnit)
 			module.funcs.HealthValue(frame, styleUnit, dbUnit)
 			module.funcs.HealthPercent(frame, styleUnit, dbUnit)
 			module.funcs.HealthMissing(frame, styleUnit, dbUnit)

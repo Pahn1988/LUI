@@ -31,6 +31,12 @@ local nameCache = {}
 local TagMethods = oUF.Tags.Methods
 local TagEvents = oUF.Tags.Events
 
+-- Always use the player's raid group, even while the frame displays a vehicle.
+TagEvents["lui:raidgroup"] = TagEvents.group
+TagMethods["lui:raidgroup"] = function()
+	return TagMethods.group("player")
+end
+
 local function utf8sub(string, i, dots)
 	local bytes = string:len()
 	if bytes <= i then

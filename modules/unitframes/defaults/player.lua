@@ -195,6 +195,17 @@ module.defaults.profile.player = {
 				X = 0,
 				Y = 0
 			},
+			RaidGroupText = {
+				Enable = false,
+				Font = "Prototype",
+				IndividualColor = { r = 1, g = 1, b = 1 },
+				Outline = "",
+				Point = "BOTTOM",
+				RelativePoint = "TOP",
+				Size = 14,
+				X = 0,
+				Y = 5,
+			},
 			HealthText = {
 				Color = "Individual",
 				Enable = true,
