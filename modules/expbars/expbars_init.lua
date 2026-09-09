@@ -37,6 +37,7 @@ module.defaults = {
 		SecondaryRelativePoint = "BOTTOM",
 		ShowText = true,
 		ShowAzerite = true,
+		AutoWatchReputation = false,
 		Precision = 2,
 		TextX = -2,
 		TextY = 0,
