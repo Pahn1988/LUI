@@ -36,6 +36,14 @@ module.defaults = {
 			X = 0,
 			Y = 0,
 		},
+		Bank = {
+			Enabled = false,
+			FillFromBottom = false,
+			RowSize = 14,
+			Spacing = 4,
+			ColumnGroupSpacing = 0,
+			Scale = 1,
+		},
 		Textures = {
 			BackgroundTex = "Blizzard Tooltip",
 			BorderTex = "Stripped_medium",
@@ -79,6 +87,7 @@ end
 
 function module:OnEnable()
 	module:SetBags()
+	module:EnableBank()
 
 	local origToggleBag = ToggleBag
 	local origOpenBag = OpenBag
@@ -109,6 +118,7 @@ function module:OnEnable()
 end
 
 function module:OnDisable()
+	module:DisableBank()
 	if _G.LUIBags then
 		module.CloseBags()
 	end
