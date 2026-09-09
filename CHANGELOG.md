@@ -55,6 +55,23 @@ This release updates LUI for World of Warcraft Retail 12.1 while keeping the ori
 - Enabled texture category, preset and custom texture settings for the action-bar top artwork.
 - Fixed tooltip backgrounds used by SavedInstances and other LibQTip-based addons.
 
+## Bags
+
+- Added separate SharedMedia texture, thickness and color controls for bag frames and item borders, including the bag bar and utility buttons.
+- Separated background artwork, opacity, item backplates and borders. Background color no longer tints selected artwork, and item backplates stay beneath their icons.
+- Corrected visible border thickness for the bundled Stripped textures and supported Blizzard borders. Kept Details BarBorder 1 and 2 outlines stable as thickness changes, and adjusted Details BarBorder 3 sizing.
+- Applied item-quality colors to common and poor items and equipped bags. Empty item slots no longer show an item border, and native borders no longer overlap LUI borders.
+- Added Fill Bags from Bottom and kept its saved state in sync with Clean Bags. Reversed the displayed slots within each bag to remove gaps between partially filled and full bags, and deferred cleanup until the selected direction has updated.
+- Refreshed bag layout, fonts, search opacity and colors from the active profile. Kept toolbar styling current after native bag-slot updates and restored separators in the gold display.
+
+## Bank
+
+- Added optional LUI styling for Blizzard's current character and Warband banks. Use LUI Bank is disabled by default and restores Blizzard's appearance when turned off.
+- Reused bag textures, item borders and quality colors while retaining native bank tabs, item actions, search, deposits, withdrawals and confirmation dialogs.
+- Added bank row size, slot spacing, scale and optional extra spacing after every two columns.
+- Added an independent Fill Bank from Bottom display option so Clean Bank fills toward the bottom of the selected tab without changing the bag sorting preference.
+- Sized the bank window to contain the deposit controls and reagent checkbox text. Shortened the Warband title and tab label, removed the bright selected-tab glow and kept native tab sockets without an extra LUI outline.
+
 ## Other fixes
 
 - Fixed Experience Bars retaining an old profile after profile changes, preventing missing-width errors and keeping layout, text and drag settings tied to the active profile.

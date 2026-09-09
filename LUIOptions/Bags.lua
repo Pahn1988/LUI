@@ -112,6 +112,17 @@ end
 Bags.args = {
 	Header = Opt:Header({name = L["Bags_Name"]}),
 	Backpack = Opt:Group({name = L["Backpack Options"], get = GetBagValue, set = SetBagValue, args = GenerateBagsOptions()}),
+    Bank = Opt:Group({name = "Bank Options", get = GetSectionValue("Bank"), set = SetSectionValue("Bank"), args = {
+        Enabled = Opt:Toggle({name = "Use LUI Bank", desc = "Use LUI backgrounds, borders and a row-based item grid for the character and Warband bank. Blizzard's bank tabs, item actions, access restrictions and confirmation dialogs remain active.", width = "full"}),
+        Description = Opt:Desc({name = "The bank shares the Textures page and Show Item Quality setting with your bags. Open a banker to preview changes. Disable Use LUI Bank to restore Blizzard's appearance."}),
+        Layout = Opt:InlineGroup({name = "Bank Layout", disabled = function() return not module.db.profile.Bank.Enabled end, args = {
+            FillFromBottom = Opt:Toggle({name = "Fill Bank from Bottom", desc = "Display bank slots from bottom-right to top-left, so Clean Bank fills toward the bottom of each tab. Disable to fill from the top. Independent of the bag sorting option.", width = "full"}),
+            RowSize = Opt:Slider({name = "Items Per Row", desc = "Number of bank slots per row.", min = 8, max = 20, step = 1}),
+            Spacing = Opt:Slider({name = "Spacing", desc = "Distance between bank slots.", min = 0, max = 12, step = 1}),
+            ColumnGroupSpacing = Opt:Slider({name = "Column Group Spacing", desc = "Extra space after every two bank columns. Set to 0 for a uniform grid or 11 for Blizzard's additional gap between column pairs.", min = 0, max = 24, step = 1}),
+            Scale = Opt:Slider({name = "Scale", desc = "Overall size of the bank frame.", min = .5, max = 1.5, step = .1}),
+        }}),
+    }}),
 	Appearance = Opt:Group({name = L["Textures"], args = {
 		BackgroundTex = Opt:MediaBackground({
 			name = "Background Texture",
