@@ -13,6 +13,14 @@ module.defaults.profile.raid = {
 			RelativePoint = "TOPLEFT",
 			Padding = 4,
 			GroupPadding = 4,
+			GroupLabel = {
+				Enable = true,
+				Font = "Prototype",
+				Size = 12,
+				Outline = "",
+				Color = { r = 1, g = 1, b = 1 },
+				Spacing = 6,
+			},
 			Border = {
 				Aggro = true,
 				Color = { r = 0, g = 0, b = 0, a = 1 },

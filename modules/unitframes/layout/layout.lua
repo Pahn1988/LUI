@@ -944,6 +944,39 @@ module.funcs = {
 	end,
 
 	--texts
+	RaidGroupText = function(self, unit, oufdb)
+		local settings = oufdb.RaidGroupText
+		if not settings then return end
+
+		local text = self.RaidGroupText
+		if not settings.Enable then
+			if text then
+				self:Untag(text)
+				text:SetText("")
+				text:Hide()
+			end
+			return
+		end
+
+		if not text then
+			text = SetFontString(self.Overlay, Media:Fetch("font", settings.Font), settings.Size, settings.Outline)
+			self.RaidGroupText = text
+		end
+		text:SetFont(Media:Fetch("font", settings.Font), settings.Size, settings.Outline)
+		text:SetTextColor(settings.IndividualColor.r, settings.IndividualColor.g, settings.IndividualColor.b)
+		text:ClearAllPoints()
+		text:SetPoint(settings.Point, self, settings.RelativePoint, settings.X, settings.Y)
+		if self.LUIPreview or module.previewStyleUnit then
+			self:Untag(text)
+			text:SetText(GROUP.." 3")
+		else
+			-- The conditional prefix disappears with the group number outside raids.
+			self:Tag(text, "["..GROUP.." $>lui:raidgroup]")
+			text:UpdateTag()
+		end
+		text:Show()
+	end,
+
 	Info = function(self, unit, oufdb)
 		if not self.Info then self.Info = SetFontString(self.Overlay, Media:Fetch("font", oufdb.NameText.Font), oufdb.NameText.Size, oufdb.NameText.Outline) end
 		self.Info:SetFont(Media:Fetch("font", oufdb.NameText.Font), oufdb.NameText.Size, oufdb.NameText.Outline)
@@ -2263,6 +2296,7 @@ local function SetStyle(self, unit, isSingle)
 		module.funcs.RaidInfo(self, unit, oufdb)
 	end
 
+	module.funcs.RaidGroupText(self, unit, oufdb)
 	module.funcs.HealthValue(self, unit, oufdb)
 	module.funcs.HealthPercent(self, unit, oufdb)
 	module.funcs.HealthMissing(self, unit, oufdb)

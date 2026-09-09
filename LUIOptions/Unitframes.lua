@@ -377,6 +377,12 @@ local function GenerateTextGroup(unit, name, colorTypes, order)
         ShortValue = Opt:Toggle({name = "Short value", onlyIf = (dbText.ShortValue ~= nil)}),
     }})
 
+    if name == "RaidGroupText" then
+        group.args.Enable = Opt:Toggle({name = "Show Raid Group", desc = "Show your raid subgroup on the player frame. Hidden outside raids; the frame preview shows a sample group number.", width = "full"})
+        group.args.Color = nil
+        group.args.IndividualColor = Opt:Color({name = "Text Color", hasAlpha = false, db = dbText})
+    end
+
     if name == "AbsorbText" then
         group.args.Opacity = Opt:Slider({name = "Text Opacity", min = 0, max = 1, step = 0.01, isPercent = true, db = dbText})
         group.args.Prefix = Opt:Input({name = "Text Prefix", desc = "Text before the total shield amount. Leave empty to show only the number."})
@@ -701,6 +707,16 @@ local function NewUnitOptionGroup(unit, order, categorized)
     end
     
     if dbUnit.NameText then textOptions.args.NameText = GenerateTextGroup(unit, "NameText", nil, categorized and 1 or 30) end
+    if unit == "player" and dbUnit.RaidGroupText then textOptions.args.RaidGroupText = GenerateTextGroup(unit, "RaidGroupText", nil, categorized and 12 or 41) end
+    if unit == "raid" and dbUnit.GroupLabel then
+        local dbLabel = dbUnit.GroupLabel
+        textOptions.args.GroupLabel = Opt:Group({name = "Group Labels", order = categorized and 12 or 41, db = dbLabel, args = {
+            Enable = Opt:Toggle({name = "Show Group Labels", desc = "Label each occupied raid group outside its frames. Labels follow the group layout and are also shown in the raid preview.", width = "full"}),
+            Spacing = Opt:Slider({name = "Distance from Frames", min = 0, max = 50, step = 1}),
+            Color = Opt:Color({name = "Text Color", hasAlpha = false, db = dbLabel}),
+            Font = UnitFontMenu(dbLabel, "Text Font"),
+        }})
+    end
     if dbUnit.HealthText then textOptions.args.HealthText = GenerateTextGroup(unit, "HealthText", healthColorTypes, categorized and 2 or 31) end
     if dbUnit.PowerText then textOptions.args.PowerText = GenerateTextGroup(unit, "PowerText", powerColorTypes, categorized and 3 or 32) end
     if dbUnit.HealthPercentText then textOptions.args.HealthPercentText = GenerateTextGroup(unit, "HealthPercentText", healthColorTypes, categorized and 4 or 33) end
