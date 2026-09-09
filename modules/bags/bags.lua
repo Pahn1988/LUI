@@ -25,8 +25,9 @@ local SetItemButtonDesaturated = _G.SetItemButtonDesaturated
 local ClearItemButtonOverlay = _G.ClearItemButtonOverlay
 local SetItemButtonOverlay = _G.SetItemButtonOverlay
 local SetItemButtonTexture = _G.SetItemButtonTexture
-local GetItemQualityColor = C_Item.GetItemQualityColor
 local SetItemButtonCount = _G.SetItemButtonCount
+local GetItemQualityColor = C_Item.GetItemQualityColor
+local GetInventoryItemQuality = _G.GetInventoryItemQuality
 local GetDetailedItemLevelInfo = C_Item.GetDetailedItemLevelInfo
 
 local TEXTURE_ITEM_QUEST_BORDER = _G.TEXTURE_ITEM_QUEST_BORDER
@@ -42,10 +43,430 @@ local LAYOUT_OFFSET = 26
 
 local ITEMSLOT_NORMAL_ALPHA = 1
 local ITEMSLOT_FILTER_ALPHA = .2
-local BACKGROUND_MULTIPLIER = 0.4
 
 -- Local variables
 local containerStorage = {}
+
+-- LUI bag visuals use ordinary texture regions. SharedMedia border files are
+-- drawn by eight lightweight edge pieces using the packed coordinates those
+-- media files were authored for, keeping background and border rendering fully
+-- independent.
+local max = math.max
+local min = math.min
+local BORDER_PIECES = {
+    "TopLeftCorner", "TopRightCorner", "BottomLeftCorner", "BottomRightCorner",
+    "TopEdge", "BottomEdge", "LeftEdge", "RightEdge",
+}
+local COORD_START = 0.0625
+local COORD_END = 1 - COORD_START
+local CORNER_UVS = {
+    TopLeftCorner     = {0.5078125, COORD_START, 0.5078125, COORD_END, 0.6171875, COORD_START, 0.6171875, COORD_END},
+    TopRightCorner    = {0.6328125, COORD_START, 0.6328125, COORD_END, 0.7421875, COORD_START, 0.7421875, COORD_END},
+    BottomLeftCorner  = {0.7578125, COORD_START, 0.7578125, COORD_END, 0.8671875, COORD_START, 0.8671875, COORD_END},
+    BottomRightCorner = {0.8828125, COORD_START, 0.8828125, COORD_END, 0.9921875, COORD_START, 0.9921875, COORD_END},
+}
+
+-- These bundled 128x16 borders have only 3 or 5 painted pixels across each
+-- 16px tile. Crop their transparent margins for the outer bag frame so its
+-- thickness setting sizes the painted band, not the mostly empty tile.
+local STRIPPED_BANDS = {
+    ["interface/addons/lui/media/borders/stripped.tga"] = {1, 6},
+    ["interface/addons/lui/media/borders/stripped_medium.tga"] = {2, 5},
+    ["interface/addons/lui/media/borders/stripped_hard.tga"] = {1, 6},
+}
+
+-- Measured from the Blizzard/Details packed border images: tile size, painted
+-- band start/end, and corner extent (exclusive pixel coordinates). Rounded
+-- and ornamental corners need more room than the straight painted band.
+local MEASURED_BORDERS = {
+    ["interface/dialogframe/ui-dialogbox-border"] = {32, 0, 16, 18},
+    ["interface/dialogframe/ui-dialogbox-gold-border"] = {32, 0, 16, 18},
+    ["interface/tooltips/ui-tooltip-border"] = {16, 1, 6, 9},
+    ["interface/addons/details/images/border_3"] = {16, 2, 5, 5},
+}
+
+-- Details 1/2 are one-pixel outlines: bevelled and square respectively.
+-- Reproduce those contours with solid quads instead of magnifying their tiny
+-- corner bitmaps. The outer corner cut stays fixed as the stroke grows inward.
+local THIN_OUTLINES = {
+    ["interface/addons/details/images/border_1"] = 3,
+    ["interface/addons/details/images/border_2"] = 0,
+}
+local OUTLINE_SEGMENTS = {
+    "TopEdge", "TopRightCorner", "RightEdge", "BottomRightCorner",
+    "BottomEdge", "BottomLeftCorner", "LeftEdge", "TopLeftCorner",
+}
+
+local function UpdateThinOutline(target, skin)
+    local width, height = target:GetWidth(), target:GetHeight()
+    if issecretvalue(width) or issecretvalue(height) or width <= 0 or height <= 0 then return end
+    local thickness = min(skin.borderSize, width / 2, height / 2)
+    local cut = min(skin.outlineCut, width / 4, height / 4)
+    local innerCut = max(0, cut - (2 - math.sqrt(2)) * thickness)
+    innerCut = min(innerCut, (width - 2 * thickness) / 2, (height - 2 * thickness) / 2)
+    local function Contour(inset, corner)
+        local left, top, right, bottom = inset, inset, width - inset, height - inset
+        return {
+            {left + corner, top}, {right - corner, top},
+            {right, top + corner}, {right, bottom - corner},
+            {right - corner, bottom}, {left + corner, bottom},
+            {left, bottom - corner}, {left, top + corner},
+        }
+    end
+    local outer, inner = Contour(0, cut), Contour(thickness, innerCut)
+    for i, name in ipairs(OUTLINE_SEGMENTS) do
+        local nextIndex = i % 8 + 1
+        local a, b, c, d = outer[i], outer[nextIndex], inner[nextIndex], inner[i]
+        local piece = skin.borderPieces[name]
+        piece:ClearAllPoints()
+        piece:SetAllPoints(target)
+        piece:SetColorTexture(1, 1, 1, 1)
+        piece:SetTexCoord(0, 1, 0, 1)
+        -- Vertex indices: upper left, lower left, upper right, lower right.
+        piece:SetVertexOffset(1, a[1], -a[2])
+        piece:SetVertexOffset(3, b[1] - width, -b[2])
+        piece:SetVertexOffset(4, c[1] - width, height - c[2])
+        piece:SetVertexOffset(2, d[1], height - d[2])
+        local color = skin.borderColor
+        if color then piece:SetVertexColor(color[1], color[2], color[3], color[4]) end
+    end
+end
+
+local function UpdateMeasuredBorder(target, skin, profile)
+    local tileSize, first, last, cornerEnd = profile[1], profile[2], profile[3], profile[4]
+    local bandWidth = last - first
+    local edgeSize = skin.borderSize
+    local cornerSize = edgeSize * (cornerEnd - first) / bandWidth
+    local width, height = target:GetWidth(), target:GetHeight()
+    local readable = not issecretvalue(width) and not issecretvalue(height)
+    if readable and width > 0 and height > 0 then
+        local limit = min(width, height) / 2
+        edgeSize = min(edgeSize, limit)
+        cornerSize = min(edgeSize * (cornerEnd - first) / bandWidth, limit)
+        -- Crop the straight tails of large corners on small item buttons;
+        -- reducing the entire skin here would also reduce the chosen thickness.
+        cornerEnd = first + cornerSize * bandWidth / edgeSize
+    end
+    local pieces = skin.borderPieces
+    local function Corner(name, tile, right, bottom)
+        local x1, x2 = first, cornerEnd
+        local y1, y2 = first, cornerEnd
+        if right then x1, x2 = tileSize - cornerEnd, tileSize - first end
+        if bottom then y1, y2 = tileSize - cornerEnd, tileSize - first end
+        pieces[name]:SetSize(cornerSize, cornerSize)
+        pieces[name]:SetTexCoord((tile * tileSize + x1) / (8 * tileSize), (tile * tileSize + x2) / (8 * tileSize), y1 / tileSize, y2 / tileSize)
+    end
+    Corner("TopLeftCorner", 4, false, false)
+    Corner("TopRightCorner", 5, true, false)
+    Corner("BottomLeftCorner", 6, false, true)
+    Corner("BottomRightCorner", 7, true, true)
+    pieces.TopEdge:SetHeight(edgeSize)
+    pieces.BottomEdge:SetHeight(edgeSize)
+    pieces.LeftEdge:SetWidth(edgeSize)
+    pieces.RightEdge:SetWidth(edgeSize)
+
+    local repeatX, repeatY = 1, 1
+    if readable then
+        local tileLength = edgeSize * tileSize / bandWidth
+        repeatX = max(1, (width - 2 * cornerSize) / tileLength)
+        repeatY = max(1, (height - 2 * cornerSize) / tileLength)
+    end
+    local textureWidth = 8 * tileSize
+    local left1, left2 = first / textureWidth, last / textureWidth
+    local right1, right2 = (2 * tileSize - last) / textureWidth, (2 * tileSize - first) / textureWidth
+    local top1, top2 = (2 * tileSize + first) / textureWidth, (2 * tileSize + last) / textureWidth
+    local bottom1, bottom2 = (4 * tileSize - last) / textureWidth, (4 * tileSize - first) / textureWidth
+    pieces.LeftEdge:SetTexCoord(left1, left2, 0, repeatY)
+    pieces.RightEdge:SetTexCoord(right1, right2, 0, repeatY)
+    pieces.TopEdge:SetTexCoord(top1, repeatX, top2, repeatX, top1, 0, top2, 0)
+    pieces.BottomEdge:SetTexCoord(bottom1, repeatX, bottom2, repeatX, bottom1, 0, bottom2, 0)
+end
+
+local function SetStrippedBorderCoordinates(pieces, band)
+    local first, last = band[1] + 0.5, band[2] - 0.5
+    local oppositeFirst, oppositeLast = 16 - last, 16 - first
+    local function Corner(name, tile, left, right, top, bottom)
+        pieces[name]:SetTexCoord((tile * 16 + left) / 128, (tile * 16 + right) / 128, top / 16, bottom / 16)
+    end
+    Corner("TopLeftCorner", 4, first, last, first, last)
+    Corner("TopRightCorner", 5, oppositeFirst, oppositeLast, first, last)
+    Corner("BottomLeftCorner", 6, first, last, oppositeFirst, oppositeLast)
+    Corner("BottomRightCorner", 7, oppositeFirst, oppositeLast, oppositeFirst, oppositeLast)
+    pieces.LeftEdge:SetTexCoord(first / 128, last / 128, COORD_START, COORD_END)
+    pieces.RightEdge:SetTexCoord((16 + oppositeFirst) / 128, (16 + oppositeLast) / 128, COORD_START, COORD_END)
+    pieces.TopEdge:SetTexCoord((32 + first) / 128, COORD_END, (32 + last) / 128, COORD_END,
+        (32 + first) / 128, COORD_START, (32 + last) / 128, COORD_START)
+    pieces.BottomEdge:SetTexCoord((48 + oppositeFirst) / 128, COORD_END, (48 + oppositeLast) / 128, COORD_END,
+        (48 + oppositeFirst) / 128, COORD_START, (48 + oppositeLast) / 128, COORD_START)
+end
+
+local function SetComplexTexCoord(texture, coords)
+    texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4], coords[5], coords[6], coords[7], coords[8])
+end
+
+local function FetchBagMedia(mediaType, key, fallback)
+    if key == "None" then return nil end
+    local texture
+    if type(key) == "string" and key ~= "" then
+        texture = Media:Fetch(mediaType, key, true)
+    end
+    if (not texture or texture == "") and fallback then
+        texture = Media:Fetch(mediaType, fallback, true)
+    end
+    return texture ~= "" and texture or nil
+end
+
+local function EnsureBagSkin(target)
+    local skin = target.LUIBagSkin
+    if skin then return skin end
+
+    skin = { borderPieces = {} }
+    target.LUIBagSkin = skin
+
+    skin.artwork = target:CreateTexture(nil, "BACKGROUND", nil, -8)
+    skin.artwork:SetAllPoints(target)
+
+    skin.tint = target:CreateTexture(nil, "BACKGROUND", nil, -7)
+    skin.tint:SetAllPoints(target)
+
+    for _, name in ipairs(BORDER_PIECES) do
+        skin.borderPieces[name] = target:CreateTexture(nil, "OVERLAY", nil, 6)
+    end
+
+    target:HookScript("OnSizeChanged", function(self)
+        module:UpdateSkinBorderCoordinates(self)
+    end)
+    return skin
+end
+
+function module:UpdateSkinBorderCoordinates(target)
+    local skin = target and target.LUIBagSkin
+    if not skin or not skin.borderTexture then return end
+    if skin.outlineCut ~= nil then
+        UpdateThinOutline(target, skin)
+        return
+    end
+    if skin.measuredBorder then
+        UpdateMeasuredBorder(target, skin, skin.measuredBorder)
+        return
+    end
+
+    local edgeSize = skin.borderSize or 1
+    local width, height = target:GetWidth(), target:GetHeight()
+    local readable = not issecretvalue(width) and not issecretvalue(height)
+    if skin.fitBorder and readable and width > 0 and height > 0 then
+        -- A small toolbar must not end up with overlapping corners.
+        edgeSize = min(edgeSize, width / 2, height / 2)
+        for _, name in ipairs({"TopLeftCorner", "TopRightCorner", "BottomLeftCorner", "BottomRightCorner"}) do
+            skin.borderPieces[name]:SetSize(edgeSize, edgeSize)
+        end
+        skin.borderPieces.TopEdge:SetHeight(edgeSize)
+        skin.borderPieces.BottomEdge:SetHeight(edgeSize)
+        skin.borderPieces.LeftEdge:SetWidth(edgeSize)
+        skin.borderPieces.RightEdge:SetWidth(edgeSize)
+    end
+    if skin.strippedBand then
+        SetStrippedBorderCoordinates(skin.borderPieces, skin.strippedBand)
+        return
+    end
+    local repeatX, repeatY = COORD_END, COORD_END
+    if readable then
+        -- Both frame dimensions and edgeSize are already in the same UI units.
+        local corners = skin.fitBorder and 2 or 1
+        repeatX = max(COORD_END, width / edgeSize - corners - COORD_START)
+        repeatY = max(COORD_END, height / edgeSize - corners - COORD_START)
+    end
+
+    local pieces = skin.borderPieces
+    pieces.TopEdge:SetTexCoord(0.2578125, repeatX, 0.3671875, repeatX, 0.2578125, COORD_START, 0.3671875, COORD_START)
+    pieces.BottomEdge:SetTexCoord(0.3828125, repeatX, 0.4921875, repeatX, 0.3828125, COORD_START, 0.4921875, COORD_START)
+    pieces.LeftEdge:SetTexCoord(0.0078125, COORD_START, 0.0078125, repeatY, 0.1171875, COORD_START, 0.1171875, repeatY)
+    pieces.RightEdge:SetTexCoord(0.1328125, COORD_START, 0.1328125, repeatY, 0.2421875, COORD_START, 0.2421875, repeatY)
+end
+
+function module:RefreshMedia()
+    local profile = module.db and module.db.profile
+    local db = profile and profile.Textures
+    if not db then return end
+
+    module.bagMedia = module.bagMedia or {}
+    module.bagMedia.background = FetchBagMedia("background", db.BackgroundTex, "Blizzard Tooltip")
+    module.bagMedia.border = FetchBagMedia("border", db.BorderTex, "Stripped_medium")
+    module.bagMedia.itemBorder = FetchBagMedia("border", db.ItemBorderTex, "Stripped_medium")
+    module.bagMedia.borderSize = math.max(1, tonumber(db.BorderSize) or 5)
+    -- Item buttons are only 36 px. Keep the usable range small enough that the
+    -- border remains a border instead of swallowing the icon.
+    module.bagMedia.itemBorderSize = min(6, math.max(1, tonumber(db.ItemBorderSize) or 3))
+end
+
+function module:ApplyBackgroundStyle(target, colorKey)
+    if not target then return end
+    local skin = EnsureBagSkin(target)
+    local texture = module.bagMedia and module.bagMedia.background
+    local r, g, b, a = module:RGBA(colorKey)
+    r, g, b = tonumber(r) or 1, tonumber(g) or 1, tonumber(b) or 1
+    a = tonumber(a) or 1
+
+    skin.tint:SetDrawLayer("BACKGROUND", -8)
+    skin.artwork:SetDrawLayer("BACKGROUND", -7)
+
+    if texture then
+        -- A selected background texture is artwork, not a color swatch. Never
+        -- multiply it by Background Color; only the saved opacity affects it.
+        skin.tint:Hide()
+        skin.artwork:SetTexture(texture)
+        skin.artwork:SetVertexColor(1, 1, 1, 1)
+        skin.artwork:SetAlpha(a)
+        skin.artwork:Show()
+    else
+        -- With no artwork selected, Background Color becomes the actual fill.
+        skin.artwork:Hide()
+        skin.tint:SetColorTexture(r, g, b, a)
+        skin.tint:Show()
+    end
+end
+
+function module:ApplyItemBackgroundStyle(target)
+    if not target then return end
+    local skin = EnsureBagSkin(target)
+    local r, g, b, a = module:RGBA("ItemBackground")
+    local name = target:GetName()
+    local icon = target.icon or target.Icon or (name and _G[name.."IconTexture"])
+    local inset = 3
+
+    -- This is the slot backplate underneath the item icon, similar to a Masque
+    -- button backdrop. It is deliberately separate from the item border.
+    skin.artwork:Hide()
+    skin.tint:SetDrawLayer("BORDER", -8)
+    skin.tint:ClearAllPoints()
+    -- Keep the backplate beneath the icon, including its transparent parts.
+    -- A larger rectangle reads as a second border around narrow/rounded skins.
+    if icon then
+        skin.tint:SetAllPoints(icon)
+    else
+        skin.tint:SetPoint("TOPLEFT", target, "TOPLEFT", inset, -inset)
+        skin.tint:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", -inset, inset)
+    end
+    skin.tint:SetColorTexture(tonumber(r) or 0.18, tonumber(g) or 0.18, tonumber(b) or 0.18, tonumber(a) or 0.8)
+    skin.tint:Show()
+end
+
+function module:HideSkinBorder(target)
+    local skin = target and target.LUIBagSkin
+    if not skin then return end
+    skin.borderTexture = nil
+    for _, piece in pairs(skin.borderPieces) do piece:Hide() end
+end
+
+function module:SetSkinBorderShown(target, shown)
+    local skin = target and target.LUIBagSkin
+    if not skin then return end
+    for _, piece in pairs(skin.borderPieces) do
+        piece:SetShown(shown and skin.borderTexture ~= nil)
+    end
+end
+
+function module:SetSkinBorderColor(target, r, g, b, a)
+    local skin = target and target.LUIBagSkin
+    if not skin then return end
+    r, g, b, a = tonumber(r) or 1, tonumber(g) or 1, tonumber(b) or 1, tonumber(a) or 1
+    skin.borderColor = {r, g, b, a}
+    for _, piece in pairs(skin.borderPieces) do piece:SetVertexColor(r, g, b, a) end
+end
+
+function module:ApplyBorderStyle(target, edgeTexture, edgeSize, colorKey, fitBorder)
+    if not target then return end
+    local skin = EnsureBagSkin(target)
+    if not edgeTexture then
+        module:HideSkinBorder(target)
+        return
+    end
+
+    edgeSize = math.max(1, tonumber(edgeSize) or 1)
+    skin.borderTexture = edgeTexture
+    skin.borderSize = edgeSize
+    skin.fitBorder = fitBorder
+    local texturePath = type(edgeTexture) == "string" and edgeTexture:lower():gsub("\\", "/"):gsub("/+", "/")
+    skin.strippedBand = fitBorder and STRIPPED_BANDS[texturePath] or nil
+    local measuredPath = texturePath and texturePath:gsub("%.tga$", ""):gsub("%.blp$", "")
+    skin.measuredBorder = fitBorder and MEASURED_BORDERS[measuredPath] or nil
+    skin.outlineCut = fitBorder and THIN_OUTLINES[measuredPath] or nil
+    local pieces = skin.borderPieces
+
+    local topLeft, topRight = pieces.TopLeftCorner, pieces.TopRightCorner
+    local bottomLeft, bottomRight = pieces.BottomLeftCorner, pieces.BottomRightCorner
+    local top, bottom, left, right = pieces.TopEdge, pieces.BottomEdge, pieces.LeftEdge, pieces.RightEdge
+
+    for _, piece in pairs(pieces) do
+        piece:ClearAllPoints()
+        -- A different selected texture must not inherit the outline geometry.
+        piece:ClearVertexOffsets()
+        piece:SetTexture(edgeTexture, true, true)
+        piece:Show()
+    end
+
+    -- Keep the outside fixed while the border grows inward. The icon/backplate
+    -- remains independently anchored and colored.
+    topLeft:SetPoint(fitBorder and "TOPLEFT" or "CENTER", target, "TOPLEFT")
+    topRight:SetPoint(fitBorder and "TOPRIGHT" or "CENTER", target, "TOPRIGHT")
+    bottomLeft:SetPoint(fitBorder and "BOTTOMLEFT" or "CENTER", target, "BOTTOMLEFT")
+    bottomRight:SetPoint(fitBorder and "BOTTOMRIGHT" or "CENTER", target, "BOTTOMRIGHT")
+    topLeft:SetSize(edgeSize, edgeSize)
+    topRight:SetSize(edgeSize, edgeSize)
+    bottomLeft:SetSize(edgeSize, edgeSize)
+    bottomRight:SetSize(edgeSize, edgeSize)
+
+    top:SetPoint("TOPLEFT", topLeft, "TOPRIGHT")
+    top:SetPoint("TOPRIGHT", topRight, "TOPLEFT")
+    top:SetHeight(edgeSize)
+    bottom:SetPoint("BOTTOMLEFT", bottomLeft, "BOTTOMRIGHT")
+    bottom:SetPoint("BOTTOMRIGHT", bottomRight, "BOTTOMLEFT")
+    bottom:SetHeight(edgeSize)
+    left:SetPoint("TOPLEFT", topLeft, "BOTTOMLEFT")
+    left:SetPoint("BOTTOMLEFT", bottomLeft, "TOPLEFT")
+    left:SetWidth(edgeSize)
+    right:SetPoint("TOPRIGHT", topRight, "BOTTOMRIGHT")
+    right:SetPoint("BOTTOMRIGHT", bottomRight, "TOPRIGHT")
+    right:SetWidth(edgeSize)
+
+    for name, coords in pairs(CORNER_UVS) do
+        SetComplexTexCoord(pieces[name], coords)
+    end
+    module:UpdateSkinBorderCoordinates(target)
+    module:SetSkinBorderColor(target, module:RGBA(colorKey))
+end
+
+function module:ApplyBagFrameStyle(target)
+    module:ApplyBackgroundStyle(target, "Background")
+    local media = module.bagMedia or {}
+    module:ApplyBorderStyle(target, media.border, media.borderSize, "Border", true)
+end
+
+function module:ApplyItemStyle(target)
+    module:ApplyItemBackgroundStyle(target)
+    local media = module.bagMedia or {}
+    module:ApplyBorderStyle(target, media.itemBorder, media.itemBorderSize, "ItemBorder", true)
+    module:SetSkinBorderShown(target, target.LUIHasItem ~= false)
+end
+
+function module:SetToolbarSlotBorderColor(slot, container)
+    local colorKey = "Border"
+    if slot.isBag and slot.inventoryID then
+        if container:GetOption("ItemQuality") then
+            local quality = GetInventoryItemQuality("player", slot.inventoryID)
+            if quality ~= nil then
+                local r, g, b = GetItemQualityColor(quality)
+                module:SetSkinBorderColor(slot, r, g, b, 1)
+                return
+            end
+        else
+            colorKey = "ItemBorder"
+        end
+    end
+    -- Empty bag sockets and utility buttons have no item quality. Use a color
+    -- that remains editable while Show Item Quality disables Item Border Color.
+    module:SetSkinBorderColor(slot, module:RGBA(colorKey))
+end
 
 -- ####################################################################################################################
 -- ##### Container Mixin ##############################################################################################
@@ -53,6 +474,25 @@ local containerStorage = {}
 
 ---@class ContainerMixin : Frame
 local ContainerMixin = {}
+
+function ContainerMixin:GetDB()
+	local profile = module.db and module.db.profile
+	return profile and profile[self.profileKey or self.name]
+end
+
+function module:ApplyBagTextColor(fontString, colorKey)
+	if not fontString then return end
+	local r, g, b, a = module:RGBA(colorKey)
+	if r and g and b then
+		fontString:SetTextColor(r, g, b, a or 1)
+	end
+end
+
+function module:RefreshBagFontString(fontString, fontKey, colorKey)
+	if not fontString then return end
+	module:RefreshFontString(fontString, fontKey)
+	module:ApplyBagTextColor(fontString, colorKey or fontKey)
+end
 
 function ContainerMixin:Open()
 	self:Show()
@@ -71,7 +511,8 @@ function ContainerMixin:Toggle()
 end
 
 function ContainerMixin:StartMovingFrame()
-	if not self.db.Lock then
+	local db = self:GetDB()
+	if db and not db.Lock then
 		self:StartMoving()
 	end
 end
@@ -79,8 +520,10 @@ end
 function ContainerMixin:StopMovingFrame()
 	self:StopMovingOrSizing()
 	local x, y = self:GetCenter()
-	self.db.X = x
-	self.db.Y = y
+	local db = self:GetDB()
+	if not db then return end
+	db.X = x
+	db.Y = y
 end
 
 function ContainerMixin:QueueBagUpdate(id)
@@ -161,7 +604,8 @@ function ContainerMixin:HideTitleBar()
 end
 
 function ContainerMixin:GetOption(name)
-	return self.db[name]
+	local db = self:GetDB()
+	return db and db[name]
 end
 
 function ContainerMixin:IsValidID(id)
@@ -206,10 +650,13 @@ end
 
 function ContainerMixin:SetPosition()
 	self:ClearAllPoints()
-	if not self.db.X or self.db.X == 0 and self.db.Y == 0 then
+	local db = self:GetDB()
+	local x = db and tonumber(db.X) or 0
+	local y = db and tonumber(db.Y) or 0
+	if x == 0 and y == 0 then
 		self:SetPoint("CENTER", UIParent, "CENTER")
 	else
-		self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", self.db.X, self.db.Y)
+		self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
 	end
 end
 
@@ -235,14 +682,8 @@ end
 -- Container-specific code creates Blizzard item-slot templates; this method
 -- applies the shared LUI presentation afterward.
 function ContainerMixin:SetItemSlotProperties(itemSlot)
-	--Make it easy to fetch Cooldown information
-	itemSlot.cooldown = _G[itemSlot:GetName() .. "Cooldown"]
-
-	--Update backdrop
-	LUI:ApplyFrameBackdrop(itemSlot, module.itemBackdrop)
-	LUI:SetFrameBackgroundColor(itemSlot, module:RGBA("ItemBackground"))
+    itemSlot.cooldown = _G[itemSlot:GetName() .. "Cooldown"]
 end
-
 -- ####################################################################################################################
 -- ##### Container: Slot Update #######################################################################################
 -- ####################################################################################################################
@@ -253,12 +694,8 @@ function ContainerMixin:SlotUpdate(itemSlot)
 	local id, slot = itemSlot.id, itemSlot.slot
 	local data = C_Container.GetContainerItemInfo(id, slot)
 
-	LUI:SetFrameBorderColor(itemSlot, module:RGBA("Border"))
-	if module:IsProfessionBag(id) then
-		LUI:SetFrameBorderColor(itemSlot, module:RGBA("Professions"))
-	end
-
 	itemSlot:SetHasItem(data ~= nil)
+	itemSlot.LUIHasItem = data ~= nil
 	itemSlot:SetReadable(data and data.isReadable)
 	itemSlot:UpdateCooldown(data ~= nil)
 	itemSlot:UpdateJunkItem(data and data.quality, data and data.hasNoValue)
@@ -318,30 +755,28 @@ function ContainerMixin:SlotUpdate(itemSlot)
 
 	-- Make sure to not keep name/quality info from previous item
 	itemSlot.name = nil
-	itemSlot.quality = nil
+	itemSlot.quality = data and data.quality
 	itemSlot.level = nil
 
-	-- Color Border according to quality
 	local itemLink = data and data.hyperlink
 	if itemLink then
 		itemSlot.name = data.itemName
-		itemSlot.quality = data.quality
-		
-		-- Get the item level for equippable items
-		if self.db.ItemLevel and C_Item.IsEquippableItem(itemLink) then
+
+		if self:GetOption("ItemLevel") and C_Item.IsEquippableItem(itemLink) then
 			itemSlot.level = GetDetailedItemLevelInfo(itemLink)
 		end
-
-		self:SetItemSlotBorderColor(itemSlot)
-		
 	end
-	
+
+	-- LUI's own item border follows item quality when that option is enabled.
+	-- The custom Item Border Color is only used when quality coloring is off.
+	self:SetItemSlotBorderColor(itemSlot)
+
 	if data then
 		SetItemButtonTexture(itemSlot, data.iconFileID)
 		SetItemButtonCount(itemSlot, itemSlot.level or data.stackCount)
 		SetItemButtonDesaturated(itemSlot, data.isLocked)
 
-		if self.db.ShowOverlay and itemLink then
+		if self:GetOption("ShowOverlay") and itemLink then
 			SetItemButtonOverlay(itemSlot, itemLink, data.quality, data.isBound)
 		else
 			ClearItemButtonOverlay(itemSlot)
@@ -350,20 +785,27 @@ function ContainerMixin:SlotUpdate(itemSlot)
 		itemSlot:Reset()
 	end
 
+	-- Reset may restore the template's normal border on an empty slot.
+	itemSlot:SetNormalTexture("")
+	local nativeBorder = itemSlot.IconBorder or _G[itemSlot:GetName().."IconBorder"]
+	if nativeBorder then nativeBorder:Hide() end
 	itemSlot:Show()
 end
 
 function ContainerMixin:SetItemSlotBorderColor(itemSlot)
-	if self:GetOption("ItemQuality") and itemSlot.quality and itemSlot.quality >= Enum.ItemQuality.Uncommon then
-		local r, g, b = GetItemQualityColor(itemSlot.quality)
-		LUI:SetFrameBorderColor(itemSlot, r, g, b)
-	elseif module:IsProfessionBag(itemSlot.id) then
-		LUI:SetFrameBorderColor(itemSlot, module:RGBA("Professions"))
-	else
-		LUI:SetFrameBorderColor(itemSlot, module:RGBA("Border"))
-	end
+    -- Empty slots have a backplate, but no item/quality border. Keep the skin
+    -- configured so a newly occupied slot can show its border without a reload.
+    module:SetSkinBorderShown(itemSlot, itemSlot.LUIHasItem ~= false)
+    if itemSlot.LUIHasItem == false then return end
+    if self:GetOption("ItemQuality") and itemSlot.quality ~= nil then
+        local r, g, b = GetItemQualityColor(itemSlot.quality)
+        module:SetSkinBorderColor(itemSlot, r, g, b, 1)
+    elseif module:IsProfessionBag(itemSlot.id) then
+        module:SetSkinBorderColor(itemSlot, module:RGBA("Professions"))
+    else
+        module:SetSkinBorderColor(itemSlot, module:RGBA("ItemBorder"))
+    end
 end
-
 function ContainerMixin:ItemLockUpdate(event_, id, slot)
 	if not slot or not self:IsValidID(id) or not self.itemList[id][slot] then
 		return
@@ -392,6 +834,10 @@ function ContainerMixin:BagUpdateEvent(idList)
 		end
 	end
 
+	-- Sorting moves items over multiple updates. Reapply the selected layout
+	-- after those updates instead of relying only on the initial option click.
+	if self.name == "Bags" then self:SetAnchors() end
+
 	-- Update Search Results if searching
 	if self.editbox:IsShown() then
 		self:SearchUpdate()
@@ -401,6 +847,33 @@ end
 -- ####################################################################################################################
 -- ##### Container: Set Anchors #######################################################################################
 -- ####################################################################################################################
+
+-- Keep the selected presentation independent of the native setting's update
+-- timing. Seed existing profiles once from their current sorting direction.
+function module:GetFillBagsFromBottom()
+    local db = module.db.profile.Bags
+    if db.FillFromBottom == nil then
+        db.FillFromBottom = not C_Container.GetSortBagsRightToLeft()
+    end
+    return db.FillFromBottom
+end
+
+function module:SetFillBagsFromBottom(value)
+    module.db.profile.Bags.FillFromBottom = not not value
+    module:SortBags()
+end
+
+function module:SortBags()
+    C_Container.SetSortBagsRightToLeft(not module:GetFillBagsFromBottom())
+    if module.bagSortTimer then module.bagSortTimer:Cancel() end
+    -- Let the native direction setting update before requesting a sort.
+    -- Coalesce quick clicks so an old request cannot sort the new selection.
+    module.bagSortTimer = C_Timer.NewTimer(0, function()
+        module.bagSortTimer = nil
+        C_Container.SortBags()
+        module:Refresh()
+    end)
+end
 
 -- This function will set all itemslot anchors and the container's dimensions based on that.
 function ContainerMixin:SetAnchors()
@@ -415,13 +888,19 @@ function ContainerMixin:SetAnchors()
 	local padding = self:GetOption("Padding")
 	local spacing = self:GetOption("Spacing")
 	local rowSize = self:GetOption("RowSize")
+	-- Blizzard's bottom-fill direction chooses later bags first, but fills
+	-- each bag from its first slot. Mirror slots within each bag so a partly
+	-- filled bag joins the full bags below instead of leaving a gap between.
+	-- Keep the stored lists and real slot IDs intact for updates and clicks.
+	local reverseSlots = self.name == "Bags" and module:GetFillBagsFromBottom()
 	for i = 1, self.NUM_BAG_IDS do
 		local id = self.BAG_ID_LIST[i]
 		if self:GetOption("BagNewline") then
 			index = 0
 		end
 		for j = 1, #self.itemList[id] do
-			local itemSlot = self.itemList[id][j]
+			local slotIndex = reverseSlots and (#self.itemList[id] - j + 1) or j
+			local itemSlot = self.itemList[id][slotIndex]
 			-- Make sure to clear points to prevent errors.
 			itemSlot:ClearAllPoints()
 			-- ItemSlots beyond bagCount are hidden, so we don't count them
@@ -470,6 +949,7 @@ function ContainerMixin:SetAnchors()
 	self.background:SetPoint("BOTTOM", lineAnchor, "BOTTOM", 0, -padding)
 	self.background:SetPoint("TOP", rightAnchor, "TOP", 0, LAYOUT_OFFSET + padding)
 	-- Then set the size of the container frame to be equal to the background.
+	-- The decorative border intentionally extends outside this area.
 	self:SetSize(self.background:GetWidth(), self.background:GetHeight())
 end
 
@@ -548,9 +1028,17 @@ function module:CreateSlot(name, parent, template)
 
 	local count = button.Count or _G[name.."Count"]
 	if count then
-		module:RefreshFontString(count, "Stack")
+		module:RefreshBagFontString(count, "Stack")
 	end
 
+	-- LUI owns quality coloring; do not stack Blizzard's border underneath it.
+	local nativeBorder = button.IconBorder or _G[name.."IconBorder"]
+	if nativeBorder then nativeBorder:Hide() end
+
+	module:ApplyItemStyle(button)
+	if parent.slotList and parent.container then
+		module:SetToolbarSlotBorderColor(button, parent.container)
+	end
 	return button
 end
 
@@ -566,10 +1054,9 @@ function module:CreateNewContainer(name, obj)
 	frame:SetClampedToScreen(true)
 	frame:SetSize(600, 600)
 
-	-- Background frame
+	-- Layout frame for the main bag surface. Visual layers are owned by Bags.
 	local bgFrame = CreateFrame("Frame", nil, frame)
-	bgFrame:SetFrameLevel(frame:GetParent():GetFrameLevel()+1)
-	bgFrame:SetClampedToScreen(true)
+	bgFrame:SetFrameLevel(frame:GetFrameLevel())
 	frame.background = bgFrame
 
 	-- Close Button
@@ -604,7 +1091,7 @@ function module:CreateNewContainer(name, obj)
 	end
 	---@cast frame ContainerMixin
 
-	frame.db = module.db.profile[name]
+	frame.profileKey = name
 
 	--Set up scripts
 	frame:SetScript("OnShow", frame.OnShow)
@@ -666,110 +1153,106 @@ end
 -- ##### Module Refresh ###############################################################################################
 -- ####################################################################################################################
 function module:Refresh()
-	for _, container in pairs(containerStorage) do
-			-- Refresh Settings
-			container:SetScale(container:GetOption("Scale"))
-			container:SetPosition()
-			container:SetAnchors()
+    if not module.db or not module.db.profile then return end
+    module:RefreshMedia()
 
-			container.editbox:SetMaxLetters(container:GetOption("RowSize") * 5)
-			module:RefreshFontString(container.editbox, "Bags")
-			container.searchText:SetText(module:ColorText(SEARCH, "Search"))
-			if container.gold then
-				module:RefreshFontString(container.gold, "Bags")
-				module:RefreshFontString(container.currency, "Bags")
-			end
-			if container.utilBar then
-				container.utilBar:ClearAllPoints()
-				if container:GetOption("BagBar") then
-					container.utilBar:SetPoint("LEFT", container.bagsBar, "RIGHT", 4, 0)
-				else
-					container.utilBar:SetPoint("BOTTOMLEFT", container, "TOPLEFT", 0, 2)
-				end
-			end
+    for _, container in pairs(containerStorage) do
+        local scale = tonumber(container:GetOption("Scale")) or 1
+        container:SetScale(scale)
+        container:SetPosition()
+        container:SetAnchors()
 
-			-- Refresh Backdrops
-			module:RefreshBackdrops()
-			LUI:ApplyFrameBackdrop(container.background, module.bagBackdrop)
-			-- Refresh item slots
-			for i = 1, container.NUM_BAG_IDS do
-				local id = container.BAG_ID_LIST[i]
-				for j = 1, #container.itemList[id] do
-					local slot = container.itemList[id][j]
-					container:SlotUpdate(slot)
-					LUI:ApplyFrameBackdrop(slot, module.itemBackdrop)
-					local count = slot.Count or _G[slot:GetName().."Count"]
-					if count then module:RefreshFontString(count, "Stack") end
-				end
-			end
+        container.editbox:SetMaxLetters((tonumber(container:GetOption("RowSize")) or 16) * 5)
+        module:RefreshBagFontString(container.editbox, "Bags")
 
-			-- Refresh Toolbars
-			for _, toolbar in pairs(container.toolbars) do
-				LUI:ApplyFrameBackdrop(toolbar.background, module.bagBackdrop)
-				toolbar:SetAnchors()
-				if toolbar == container.bagsBar then
-					toolbar:SetShown(container:GetOption("BagBar"))
-				end
+        container.searchText:ClearAllPoints()
+        container.searchText:SetPoint("TOPLEFT", container, tonumber(container:GetOption("Padding")) or 0, -10)
+        container.searchText:SetPoint("TOPRIGHT", container, "TOPRIGHT", -40, 0)
+        container.searchText:SetText(SEARCH)
 
-				for i = 1, #toolbar.slotList do
-				local slot = toolbar.slotList[i]
-					LUI:ApplyFrameBackdrop(slot, module.itemBackdrop)
-				end
-			end
+        if container.gold then
+            module:RefreshBagFontString(container.gold, "Bags")
+            module:RefreshBagFontString(container.currency, "Bags")
+        end
 
-			-- Refresh Colors
-			module:RefreshColors()
-			container.forceRefresh = false
-	end
-end
+        if container.utilBar then
+            container.utilBar:ClearAllPoints()
+            if container:GetOption("BagBar") and container.bagsBar then
+                container.utilBar:SetPoint("LEFT", container.bagsBar, "RIGHT", 4, 0)
+            else
+                container.utilBar:SetPoint("BOTTOMLEFT", container, "TOPLEFT", 0, 2)
+            end
+        end
 
-function module:RefreshBackdrops()
-	local db = module.db.profile.Textures
-	-- Bag Backdrop
-	module.bagBackdrop = {
-		bgFile = Media:Fetch("background", db.BackgroundTex),
-		edgeFile = Media:Fetch("border", db.BorderTex),
-		edgeSize = db.BorderSize, insets = { left = 3, right = 3, top = 3, bottom = 3 }
-	}
-	-- Item Backdrop
-	module.itemBackdrop = {
-		bgFile = Media:Fetch("background", db.BackgroundTex),
-		edgeFile = Media:Fetch("border", db.BorderTex),
-		edgeSize = db.BorderSize, insets = { left = 3, right = 3, top = 3, bottom = 3 },
-	}
+        module:ApplyBagFrameStyle(container.background)
+
+        for i = 1, container.NUM_BAG_IDS do
+            local id = container.BAG_ID_LIST[i]
+            for j = 1, #container.itemList[id] do
+                local slot = container.itemList[id][j]
+                module:ApplyItemStyle(slot)
+                container:SlotUpdate(slot)
+                local count = slot.Count or _G[slot:GetName().."Count"]
+                if count then module:RefreshBagFontString(count, "Stack") end
+            end
+        end
+
+        for _, toolbar in pairs(container.toolbars) do
+            module:ApplyBagFrameStyle(toolbar.background)
+            toolbar:SetAnchors()
+            if toolbar == container.bagsBar then
+                toolbar:SetShown(container:GetOption("BagBar"))
+            end
+            for i = 1, #toolbar.slotList do
+                local slot = toolbar.slotList[i]
+                module:ApplyItemStyle(slot)
+                module:SetToolbarSlotBorderColor(slot, container)
+            end
+        end
+
+        container.forceRefresh = false
+    end
+
+    module:RefreshColors()
 end
 
 function module:RefreshColors()
-	for _, container in pairs(containerStorage) do
-		local r, g, b, a = module:RGBA("Background")
-		local mult = BACKGROUND_MULTIPLIER
-		LUI:SetFrameBackgroundColor(container.background, r * mult, g * mult, b * mult, a)
-		LUI:SetFrameBorderColor(container.background, module:RGBA("Border"))
+    for _, container in pairs(containerStorage) do
+        module:ApplyBackgroundStyle(container.background, "Background")
+        module:SetSkinBorderColor(container.background, module:RGBA("Border"))
 
-		for i = 1, container.NUM_BAG_IDS do
-			local id = container.BAG_ID_LIST[i]
-			for j = 1, #container.itemList[id] do
-				local itemSlot = container.itemList[id][j]
-				LUI:SetFrameBackgroundColor(itemSlot, module:RGBA("ItemBackground"))
-				container:SetItemSlotBorderColor(itemSlot)
-			end
-		end
+        module:ApplyBagTextColor(container.searchText, "Search")
+        module:ApplyBagTextColor(container.editbox, "Bags")
+        if container.gold then
+            module:ApplyBagTextColor(container.gold, "Bags")
+            module:ApplyBagTextColor(container.currency, "Bags")
+        end
 
-		-- Refresh Toolbars
-		for _, toolbar in pairs(container.toolbars) do
-			LUI:SetFrameBackgroundColor(toolbar.background, r * mult, g * mult, b * mult, a)
-			LUI:SetFrameBorderColor(toolbar.background, module:RGBA("Border"))
-			for i = 1, #toolbar.slotList do
-				local slot = toolbar.slotList[i]
-				LUI:SetFrameBackgroundColor(slot, module:RGBA("Background"))
-				LUI:SetFrameBorderColor(slot, module:RGBA("Border"))
-			end
-		end
+        for i = 1, container.NUM_BAG_IDS do
+            local id = container.BAG_ID_LIST[i]
+            for j = 1, #container.itemList[id] do
+                local itemSlot = container.itemList[id][j]
+                module:ApplyItemBackgroundStyle(itemSlot)
+                container:SetItemSlotBorderColor(itemSlot)
+                local count = itemSlot.Count or _G[itemSlot:GetName().."Count"]
+                module:ApplyBagTextColor(count, "Stack")
+            end
+        end
 
-	end
+        for _, toolbar in pairs(container.toolbars) do
+            module:ApplyBackgroundStyle(toolbar.background, "Background")
+            module:SetSkinBorderColor(toolbar.background, module:RGBA("Border"))
+            for i = 1, #toolbar.slotList do
+                local slot = toolbar.slotList[i]
+                module:ApplyItemBackgroundStyle(slot)
+                module:SetToolbarSlotBorderColor(slot, container)
+            end
+        end
+    end
 end
 
 function module:SetBags()
+	module:RefreshMedia()
 	module:CreateNewContainer("Bags", module.BagsContainer)
 	if not LUIBags.gold then
 		LUIBags:CreateTitleBar()
@@ -781,8 +1264,4 @@ end
 
 function module:RestoreBlizzardBagState()
 	if _G.LUIBags then _G.LUIBags:UnregisterAllEvents() end
-	if module.originalBackpackTokenWidth then
-		BackpackTokenFrame:SetWidth(module.originalBackpackTokenWidth)
-		module.originalBackpackTokenWidth = nil
-	end
 end

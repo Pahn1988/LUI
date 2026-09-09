@@ -6,60 +6,143 @@
 local Opt = select(2, ...)
 
 ---@type AceLocale.Localizations, LUI.Bags, AceDB-3.0
-local L, module, db = Opt:GetLUIModule("Bags")
+local L, module = Opt:GetLUIModule("Bags")
 if not module or not module.registered then return end
 
 local Bags = Opt:CreateModuleOptions("Bags", module)
+
+local function GetSectionValue(section)
+	return function(info)
+		local db = module.db.profile[section]
+		local value = db and db[info[#info]]
+		if info.type == "input" then
+			return value == nil and "" or tostring(value)
+		elseif info.type == "range" then
+			return tonumber(value)
+		end
+		return value
+	end
+end
+
+local function SetSectionValue(section)
+	return function(info, value)
+		local db = module.db.profile[section]
+		if not db then return end
+		if info.type == "input" or info.type == "range" then
+			value = tonumber(value)
+			if value == nil then return end
+		end
+		db[info[#info]] = value
+		if module.Refresh then module:Refresh() end
+	end
+end
+
+local GetBagValue = GetSectionValue("Bags")
+local SetBagValue = SetSectionValue("Bags")
+local GetTextureValue = GetSectionValue("Textures")
+
+local function IsItemBorderColorDisabled()
+	local db = module.db and module.db.profile and module.db.profile.Bags
+	return db and db.ItemQuality
+end
+
+local function SetTextureValue(info, value)
+	local db = module.db.profile.Textures
+	if not db then return end
+	if info.type == "range" then
+		value = tonumber(value)
+		if value == nil then return end
+		local key = info[#info]
+		if key == "ItemBorderSize" then
+			value = math.min(6, math.max(1, value))
+		elseif key == "BorderSize" then
+			value = math.min(32, math.max(1, value))
+		end
+	end
+	db[info[#info]] = value
+
+	-- SharedMedia is resolved and the LUI bag skin is reapplied in one refresh.
+	if module.Refresh then module:Refresh() end
+end
 
 -- ####################################################################################################################
 -- ##### Options Table ################################################################################################
 -- ####################################################################################################################
 
 local function GenerateBagsOptions()
-	local options = {
-		RowSize = Opt:Slider({name = "Items Per Row", desc = "Select how many items will be displayed per rows.", min = 1, max = 32, step = 1}),
+	return {
+		RowSize = Opt:Slider({name = "Items Per Row", desc = "Select how many items will be displayed per row.", min = 1, max = 32, step = 1}),
 		Spacer = Opt:Spacer({}),
-		Padding = Opt:Slider({name = "Padding", desc = "Distance between the frame's edge and the items.", min = 0, max = 32, step = 1 }),
+		Padding = Opt:Slider({name = "Padding", desc = "Distance between the frame edge and the items.", min = 0, max = 32, step = 1}),
 		Spacing = Opt:Slider({name = "Spacing", desc = "Distance between items.", min = 0, max = 32, step = 1}),
-		Scale = Opt:Slider({name = "Scale", desc = "Overall size of the container frame", min = 0.5, max = 2, step = 0.1}),
+		Scale = Opt:Slider({name = "Scale", desc = "Overall size of the container frame.", min = 0.5, max = 2, step = 0.1}),
 		Spacer2 = Opt:Spacer({}),
-			Lock = Opt:Toggle({name = "Lock Frame", desc = "Lock the frame in place"}),
-			BagBar = Opt:Toggle({name = "Show Bag Bar", desc = "Show the Bags bar"}),
-			BagNewline = Opt:Toggle({name = "Newline After Bags", desc = "Starts a new row for each bag."}),
-			Spacer3 = Opt:Spacer({}),
-			PositionHeader = Opt:Header({name = L["Position"]}),
-			X = Opt:PositionX(),
-			Y = Opt:PositionY(),
-			Spacer4 = Opt:Spacer({}),
-			ItemQuality = Opt:Toggle({name = "Show Item Quality", desc = "Colors item borders by their quality", width = "full"}),
-		ShowNew = Opt:Toggle({name = "Show New Item Animation", desc = "Highlights items marked as 'new'", width = "full"}),
-		ShowQuest = Opt:Toggle({name = "Show Quest Items", desc = "Highlights items that are part of a quest", width = "full"}),
-		ShowOverlay = Opt:Toggle({name = "Show Item Overlay", desc = "Display the overlay used for various types of items like Cosmetics and Crafting Quality.", width = "full"}),
-		ItemLevel = Opt:Toggle({name = "Show Item Level", desc = "Add Item Levels indicators for equipment", width = "full"}),
+		Lock = Opt:Toggle({name = "Lock Frame", desc = "Lock the frame in place."}),
+		BagBar = Opt:Toggle({name = "Show Bag Bar", desc = "Show the bag bar."}),
+		BagNewline = Opt:Toggle({name = "Newline After Bags", desc = "Start a new row for each bag."}),
+        ReverseCleanUp = Opt:Toggle({
+            name = "Fill Bags from Bottom",
+            desc = "Clean Bags fills toward the bottom of the LUI bag window. Slots within each bag are displayed in reverse order so partly filled bags meet the full bags below. Disable to fill from the top. Changing this option also cleans up your bags. Reagent bag restrictions and bag filters still apply.",
+            width = "full",
+            get = function() return module:GetFillBagsFromBottom() end,
+            set = function(_, value)
+                module:SetFillBagsFromBottom(value)
+            end,
+        }),
+		Spacer3 = Opt:Spacer({}),
+		PositionHeader = Opt:Header({name = L["Position"]}),
+		X = Opt:PositionX(),
+		Y = Opt:PositionY(),
+		Spacer4 = Opt:Spacer({}),
+		ItemQuality = Opt:Toggle({name = "Show Item Quality", desc = "Color items and equipped bags in the bag bar by quality, including gray for poor and white for common items. Empty item slots have no border. Item Border Color is disabled while this is enabled; empty bag sockets and utility buttons use Bag Border Color.", width = "full"}),
+		ShowNew = Opt:Toggle({name = "Show New Item Animation", desc = "Highlight items marked as new.", width = "full"}),
+		ShowQuest = Opt:Toggle({name = "Show Quest Items", desc = "Highlight items that are part of a quest.", width = "full"}),
+		ShowOverlay = Opt:Toggle({name = "Show Item Overlay", desc = "Display Blizzard item overlays such as cosmetics and crafting quality.", width = "full"}),
+		ItemLevel = Opt:Toggle({name = "Show Item Level", desc = "Show item levels on equippable items.", width = "full"}),
 	}
-	return options
 end
 
-local function ColorOptions(name, colorName)
+local function ColorOptions(name, colorName, disabled, desc)
 	local options = {}
-	options[colorName.."Type"] = Opt:ColorMenu(options, {name = name, arg = colorName})
+	options[colorName.."Type"] = Opt:ColorMenu(options, {name = name, arg = colorName, disabled = disabled, desc = desc})
 	return options
 end
 
 
 Bags.args = {
 	Header = Opt:Header({name = L["Bags_Name"]}),
-	Backpack = Opt:Group({name = L["Backpack Options"], db = db.Bags, args = GenerateBagsOptions()}),
+	Backpack = Opt:Group({name = L["Backpack Options"], get = GetBagValue, set = SetBagValue, args = GenerateBagsOptions()}),
 	Appearance = Opt:Group({name = L["Textures"], args = {
-		BackgroundTex = Opt:MediaBackground({name = L["Background"], db = db.Textures}),
-		BorderTex = Opt:MediaBorder({name = L["Border"], db = db.Textures}),
-		BorderSize = Opt:Slider({name = L["Thickness"], min = 1, max = 32, step = 1, db = db.Textures}),
+		BackgroundTex = Opt:MediaBackground({
+			name = "Background Texture",
+			desc = "Changes the background artwork used by the bag frame and toolbars.",
+			get = GetTextureValue, set = SetTextureValue,
+		}),
+		BorderTex = Opt:MediaBorder({
+			name = "Bag Border Texture",
+			desc = "Changes the SharedMedia border texture used by the outer bag frame and the toolbars above it.",
+			get = GetTextureValue, set = SetTextureValue,
+		}),
+		BorderSize = Opt:Slider({
+			name = "Bag Border Thickness", desc = "Changes the outer border thickness of the bag frame and toolbars without resizing their backgrounds. The bundled Stripped textures use the visible border width.",
+			min = 1, max = 32, step = 1, get = GetTextureValue, set = SetTextureValue,
+		}),
+		ItemBorderTex = Opt:MediaBorder({
+			name = "Item Border Texture",
+			desc = "Changes the SharedMedia border texture used by item and toolbar slots.",
+			get = GetTextureValue, set = SetTextureValue,
+		}),
+		ItemBorderSize = Opt:Slider({
+			name = "Item Border Thickness", desc = "Changes the border thickness used by item and toolbar slots.",
+			min = 1, max = 6, step = 1, get = GetTextureValue, set = SetTextureValue,
+		}),
 		BagFont = Opt:FontMenu({name = "Bag Text", customFontLocation = "Bags"}),
 		StackFont = Opt:FontMenu({name = "Item Count and Level", customFontLocation = "Stack"}),
 		Search = Opt:InlineGroup({name = "Search", args = ColorOptions("Search", "Search")}),
-		Background = Opt:InlineGroup({name = L["Background"], args = ColorOptions(L["Background"], "Background")}),
-		Border = Opt:InlineGroup({name = L["Border"], args = ColorOptions(L["Border"], "Border")}),
-		ItemBackground = Opt:InlineGroup({name = "Item Background", args = ColorOptions("Item Background", "ItemBackground")}),
+		Background = Opt:InlineGroup({name = L["Background"], args = ColorOptions(L["Background"], "Background", nil, "Used as the fill when no background texture is selected. With a texture selected, only this color setting's opacity is used and the artwork itself is not tinted.")}),
+		Border = Opt:InlineGroup({name = "Bag Border", args = ColorOptions("Bag Border", "Border")}),
+		ItemBorder = Opt:InlineGroup({name = "Item Border", args = ColorOptions("Item Border", "ItemBorder", IsItemBorderColorDisabled)}),
+		ItemBackground = Opt:InlineGroup({name = "Item Background", args = ColorOptions("Item Background", "ItemBackground", nil, "Colors the slot backplate underneath item icons, similar to a Masque button backdrop. This does not change the item border color.")}),
 		Professions = Opt:InlineGroup({name = "Profession Bag Slots", args = ColorOptions("Profession Bag Slots", "Professions")}),
 		BagText = Opt:InlineGroup({name = "Bag Text", args = ColorOptions("Bag Text", "Bags")}),
 		StackText = Opt:InlineGroup({name = "Item Count and Level", args = ColorOptions("Item Count and Level", "Stack")}),

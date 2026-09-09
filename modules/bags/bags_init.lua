@@ -40,6 +40,8 @@ module.defaults = {
 			BackgroundTex = "Blizzard Tooltip",
 			BorderTex = "Stripped_medium",
 			BorderSize = 5,
+			ItemBorderTex = "Stripped_medium",
+			ItemBorderSize = 3,
 		},
 		-- Fonts and Colors
 		Fonts = {
@@ -49,6 +51,7 @@ module.defaults = {
 		Colors = {
 			Search =         { r = 0.6,  g = 0.6,  b = 1,    a = 1,   t = "Class",      },
 			Border =         { r = 0.2,  g = 0.2,  b = 0.2,  a = 1,   t = "Individual", },
+			ItemBorder =     { r = 0.2,  g = 0.2,  b = 0.2,  a = 1,   t = "Individual", },
 			Background =     { r = 0.18, g = 0.18, b = 0.18, a = 0.8, t = "Class",      },
 			ItemBackground = { r = 0.18, g = 0.18, b = 0.18, a = 0.8, t = "Individual", },
 			Professions = { r = 0.1, g = 0.5, b = 0.2, a = 1, t = "Individual", },
@@ -61,6 +64,14 @@ module.defaults = {
 -- ####################################################################################################################
 -- ##### Framework Events #############################################################################################
 -- ####################################################################################################################
+
+-- Keep live frames and the options page on the newly active AceDB profile.
+-- This must exist before RegisterModule() so LUI registers the profile callbacks.
+function module:DBCallback()
+	if module:IsEnabled() and _G.LUIBags then
+		module:Refresh()
+	end
+end
 
 function module:OnInitialize()
 	LUI:RegisterModule(module)
@@ -95,11 +106,12 @@ function module:OnEnable()
 	if not tContains(UISpecialFrames, "LUIBags") then
 		tinsert(UISpecialFrames, "LUIBags")
 	end
-	_G.CloseAllBags()
 end
 
 function module:OnDisable()
-	_G.CloseAllBags()
+	if _G.LUIBags then
+		module.CloseBags()
+	end
 	self:UnhookAll()
 	module:RestoreBlizzardBagState()
 end

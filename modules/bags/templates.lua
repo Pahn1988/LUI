@@ -47,23 +47,27 @@ end
 -- ####################################################################################################################
 
 function module:CreateSearchBar(container)
-	local db = module.db.profile.Bags
+	local db = container:GetDB() or {}
 
 	-- Search Text
 	local search = container:CreateFontString(nil, "OVERLAY", "GameFonthighlightLarge")
-	local searchText = module:ColorText(SEARCH, "Search")
-	search:SetPoint("TOPLEFT", container, db.Padding, -10)
+	local searchText = SEARCH
+	search:SetPoint("TOPLEFT", container, tonumber(db.Padding) or 0, -10)
 	search:SetPoint("TOPRIGHT", -40, 0)
 	search:SetJustifyH("LEFT")
 	search:SetText(searchText)
+	local searchR, searchG, searchB, searchA = module:RGBA("Search")
+	if searchR and searchG and searchB then
+		search:SetTextColor(searchR, searchG, searchB, searchA or 1)
+	end
 
 	-- Search Editbox
 	local editbox = CreateFrame("EditBox", nil, container)
-	module:RefreshFontString(editbox, "Bags")
+	module:RefreshBagFontString(editbox, "Bags")
 	
 	editbox:SetHeight(32)
 	editbox:SetAutoFocus(false)
-	editbox:SetMaxLetters(db.RowSize * 5)
+	editbox:SetMaxLetters((tonumber(db.RowSize) or 16) * 5)
 	editbox:SetTextInsets(24, 0, 0, 0)
 	editbox:SetAllPoints(search)
 	editbox:Hide()

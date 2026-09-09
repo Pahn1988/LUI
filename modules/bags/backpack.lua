@@ -7,7 +7,6 @@ local LUI = select(2, ...)
 
 ---@class LUI.Bags
 local module = LUI:GetModule("Bags")
-local Media = LibStub("LibSharedMedia-3.0")
 
 local GetNumWatchedTokens = _G.GetNumWatchedTokens
 local GetMoneyString = _G.GetMoneyString
@@ -95,18 +94,17 @@ function Bags:HideTitleBar()
 end
 
 function Bags:CreateTitleBar()
-	local db = module.db.profile.Fonts
 	local gold = self:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
 	gold:SetJustifyH("RIGHT")
 	gold:SetPoint("RIGHT", self.closeButton, "LEFT", -3, 0)
-	gold:SetFont(Media:Fetch("font", db.Bags.Name), db.Bags.Size, db.Bags.Flag)
+	module:RefreshBagFontString(gold, "Bags")
 
 	-- Watched Currency Display, next to gold
 	local currency = self:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
 	currency:SetJustifyH("RIGHT")
 	currency:SetPoint("RIGHT", gold, "LEFT", -25, 0)
 	currency:SetText(self:GetCurrencyString())
-	currency:SetFont(Media:Fetch("font", db.Bags.Name), db.Bags.Size, db.Bags.Flag)
+	module:RefreshBagFontString(currency, "Bags")
 
 	local updateFunc = function() self:UpdateCurrencies() end
 	self:SetScript("OnEvent", updateFunc)
@@ -135,11 +133,7 @@ function Bags:GetCurrencyString()
 end
 
 function Bags:UpdateCurrencies()
-	if not module.originalBackpackTokenWidth then
-		module.originalBackpackTokenWidth = BackpackTokenFrame:GetWidth()
-	end
-	BackpackTokenFrame:SetWidth(self:GetWidth())
-	self.gold:SetText(GetMoneyString(GetMoney()))
+	self.gold:SetText(GetMoneyString(GetMoney(), true))
 	self.currency:SetText(self:GetCurrencyString())
 end
 
@@ -164,7 +158,7 @@ function Bags:CreateUtilBar()
 	local utilBar = self.utilBar
 
 	--CleanUp
-	local button = module:CreateCleanUpButton("LUIBags_CleanUp", utilBar, C_Container.SortBags)
+	local button = module:CreateCleanUpButton("LUIBags_CleanUp", utilBar, function() module:SortBags() end)
 	utilBar:AddNewButton(button)
 end
 
