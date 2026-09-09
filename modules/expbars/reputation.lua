@@ -22,6 +22,136 @@ local SHORT_REPUTATION_NAMES = {
 
 local C_Reputation = C_Reputation
 
+-- Positive chat messages establish the direction of a change; the structured
+-- standing event supplies its faction ID. Do not compare its standing with
+-- GetFactionDataByID: these can update at different times and use different
+-- values for renown/paragon. No faction headers or reputation filters are changed.
+local gainPatterns
+
+local function MakeGainPattern(text)
+	local pattern, index, argument, captures = "^", 1, 0, 0
+	while index <= #text do
+		local rest = text:sub(index)
+		local token, position, kind = rest:match("^(%%(%d+)%$[-+ #0]*%d*%.?%d*([sdifgu]))")
+		if not token then token, kind = rest:match("^(%%[-+ #0]*%d*%.?%d*([sdifgu]))") end
+		if token then
+			argument = argument + 1
+			local number = tonumber(position) or argument
+			if number == 1 and kind == "s" then
+				pattern = pattern .. "(.+)"
+				captures = captures + 1
+			else
+				pattern = pattern .. ".-"
+			end
+			index = index + #token
+		elseif rest:sub(1, 2) == "%%" then
+			pattern = pattern .. "%%"
+			index = index + 2
+		else
+			pattern = pattern .. text:sub(index, index):gsub("(%W)", "%%%1")
+			index = index + 1
+		end
+	end
+	if captures == 1 then return pattern .. "$" end
+end
+
+local function GetGainFaction(message)
+	if issecretvalue(message) or type(message) ~= "string" then return end
+	if not gainPatterns then
+		gainPatterns = {}
+		-- Blizzard provides localized formats, including account-wide and bonus
+		-- variants. Only INCREASED messages qualify; losses and rank notices do not.
+		for key, value in pairs(_G) do
+			if type(key) == "string" and key:match("^FACTION_STANDING_INCREASED")
+				and type(value) == "string" then
+				local pattern = MakeGainPattern(value)
+				if pattern then gainPatterns[#gainPatterns + 1] = pattern end
+			end
+		end
+	end
+	for _, pattern in ipairs(gainPatterns) do
+		local name = message:match(pattern)
+		if name then return name end
+	end
+end
+
+function module:ResetAutoReputation()
+	if self.autoReputationTimer then self.autoReputationTimer:Cancel() end
+	self.autoReputationTimer = nil
+	self.autoReputationBatch = nil
+end
+
+local function AddFaction(batch, data)
+	if not data or issecretvalue(data.factionID) or issecretvalue(data.name) then return end
+	if type(data.factionID) ~= "number" or data.factionID <= 0 or type(data.name) ~= "string" then return end
+	if data.isHeader and not data.isHeaderWithRep then return end
+	-- Ambiguous localized names must not silently select a different faction.
+	local previous = batch.factions[data.name]
+	if previous == nil or previous == data.factionID then
+		batch.factions[data.name] = data.factionID
+	else
+		batch.factions[data.name] = false
+	end
+end
+
+local function ApplyAutoReputation(batch)
+	if module.autoReputationBatch ~= batch then return end
+	module.autoReputationTimer = nil
+	if not module:IsEnabled() or module.db.profile ~= batch.profile
+		or not module.db.profile.AutoWatchReputation then
+		module:ResetAutoReputation()
+		return
+	end
+	batch.factions = {}
+	for id in pairs(batch.ids) do AddFaction(batch, C_Reputation.GetFactionDataByID(id)) end
+	-- This also handles gains for an already listed faction if its standing
+	-- event was not emitted. Collapsed factions are resolved by their event ID.
+	for index = 1, C_Reputation.GetNumFactions() do
+		AddFaction(batch, C_Reputation.GetFactionDataByIndex(index))
+	end
+	local id = batch.factions[batch.names[#batch.names]]
+	if id then
+		module.autoReputationBatch = nil
+		local watched = C_Reputation.GetWatchedFactionData()
+		if not watched or watched.factionID ~= id then C_Reputation.SetWatchedFactionByID(id) end
+		module:UpdateMainBarVisibility()
+	elseif #batch.names > 0 and batch.attempt < 3 then
+		batch.attempt = batch.attempt + 1
+		module.autoReputationTimer = C_Timer.NewTimer(.15, function() ApplyAutoReputation(batch) end)
+	else
+		module.autoReputationBatch = nil
+	end
+end
+
+function module:HandleAutoReputationEvent(event, value)
+	if event == "PLAYER_ENTERING_WORLD" then self:ResetAutoReputation(); return end
+	if not self:IsEnabled() or not self.db.profile.AutoWatchReputation then
+		self:ResetAutoReputation()
+		return
+	end
+	local name, id
+	if event == "CHAT_MSG_COMBAT_FACTION_CHANGE" then
+		name = GetGainFaction(value)
+		if not name then return end
+	elseif event == "FACTION_STANDING_CHANGED" then
+		if issecretvalue(value) or type(value) ~= "number" or value <= 0 then return end
+		id = value
+	else
+		return
+	end
+	local batch = self.autoReputationBatch
+	if not batch or batch.profile ~= self.db.profile then
+		self:ResetAutoReputation()
+		batch = { profile = self.db.profile, names = {}, ids = {}, attempt = 1 }
+		self.autoReputationBatch = batch
+	end
+	if name then batch.names[#batch.names + 1] = name end
+	if id then batch.ids[id] = true end
+	if not self.autoReputationTimer then
+		self.autoReputationTimer = C_Timer.NewTimer(.15, function() ApplyAutoReputation(batch) end)
+	end
+end
+
 local function GetWatchedFactionInfo()
 	local data = C_Reputation.GetWatchedFactionData()
 	if not data then return end

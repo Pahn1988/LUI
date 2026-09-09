@@ -238,6 +238,8 @@ function module:SetEventHandling(enabled)
 		module.anchor:RegisterEvent("PLAYER_ENTERING_WORLD")
 		module.anchor:RegisterEvent("PLAYER_MAX_LEVEL_UPDATE")
 		module.anchor:RegisterEvent("UPDATE_FACTION")
+		module.anchor:RegisterEvent("FACTION_STANDING_CHANGED")
+		module.anchor:RegisterEvent("CHAT_MSG_COMBAT_FACTION_CHANGE")
 		module.anchor:RegisterEvent("ENABLE_XP_GAIN")
 		module.anchor:RegisterEvent("DISABLE_XP_GAIN")
 		module.anchor:RegisterEvent("ZONE_CHANGED")
@@ -251,6 +253,7 @@ function module:SetEventHandling(enabled)
 			bar:RegisterEvents()
 		end
 	else
+		module:ResetAutoReputation()
 		module.anchor:UnregisterAllEvents()
 		if statusTrackingBarManager and module:IsHooked(statusTrackingBarManager, "UpdateBarsShown") then
 			module:Unhook(statusTrackingBarManager, "UpdateBarsShown")
@@ -387,6 +390,8 @@ function module:SetMainBar()
 	module.secondaryMover = CreateMover(secondaryAnchor, "Experience Bar 2 - Drag to move")
 
 	anchor:SetScript("OnEvent", function(_, event, ...)
+		module:HandleAutoReputationEvent(event, ...)
+		if event == "FACTION_STANDING_CHANGED" or event == "CHAT_MSG_COMBAT_FACTION_CHANGE" then return end
 		module:UpdateMainBarVisibility(event, ...)
 	end)
 
@@ -537,6 +542,7 @@ function module:RefreshColors()
 end
 
 function module:Refresh()
+	module:ResetAutoReputation()
 	local db = module.db.profile
 	if not module.anchor or not module.secondaryAnchor then return end
 

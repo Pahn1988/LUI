@@ -62,6 +62,7 @@ This release updates LUI for World of Warcraft Retail 12.1 while keeping the ori
 - Corrected visible border thickness for the bundled Stripped textures and supported Blizzard borders. Kept Details BarBorder 1 and 2 outlines stable as thickness changes, and adjusted Details BarBorder 3 sizing.
 - Applied item-quality colors to common and poor items and equipped bags. Empty item slots no longer show an item border, and native borders no longer overlap LUI borders.
 - Added Fill Bags from Bottom and kept its saved state in sync with Clean Bags. Reversed the displayed slots within each bag to remove gaps between partially filled and full bags, and deferred cleanup until the selected direction has updated.
+- Arranged newly looted items in the free area in both fill directions: from the top left when filling bags from the bottom, or from the bottom right when filling from the top. Existing items keep their displayed positions while looting; native stacking, bag filters and reagent restrictions remain in effect.
 - Refreshed bag layout, fonts, search opacity and colors from the active profile. Kept toolbar styling current after native bag-slot updates and restored separators in the gold display.
 
 ## Bank
@@ -74,6 +75,7 @@ This release updates LUI for World of Warcraft Retail 12.1 while keeping the ori
 
 ## Other fixes
 
+- Added an optional automatic reputation tracker that follows the last reported faction with a positive reputation gain, in either bar position or with separate bars. Reputation losses do not change the watched faction; the option is disabled by default.
 - Fixed Experience Bars retaining an old profile after profile changes, preventing missing-width errors and keeping layout, text and drag settings tied to the active profile.
 - Fixed Bags update handling and character-bag ownership.
 - Updated merchant coin-texture formatting to the current `C_CurrencyInfo` API.

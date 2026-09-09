@@ -111,6 +111,11 @@ ExpBars.args = {
 		disabled = IsSpacingDisabled,
 	}),
 	ShowAzerite = Opt:Toggle({name = "Show Azerite XP when Heart of Azeroth is equipped.", width = "full"}),
+	AutoWatchReputation = Opt:Toggle({
+		name = "Automatically track reputation gains",
+		desc = "Switch the watched faction after a reputation gain. When several factions gain reputation together, follow the last reported faction. Applies to the reputation tracker in either bar position, including separate bars. Changes Blizzard's watched faction too. Reputation losses do not switch the tracker.",
+		width = "full",
+	}),
 
 	AppHeader = Opt:Header({name = "Appearances"}),
 	ExperienceType = Opt:ColorMenu(colorMenuOptions, {name = L["ExpBar_Mode_Experience"], arg = "Experience"}),
