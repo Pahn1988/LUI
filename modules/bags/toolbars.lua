@@ -55,10 +55,18 @@ function ToolbarMixin:SetAnchors()
 		end
 	end
 
+	self.background:ClearAllPoints()
+	if not firstAnchor or not previousAnchor then
+		self:Hide()
+		return
+	end
+
 	self.background:SetPoint("LEFT", firstAnchor, "LEFT", -padding, 0)
 	self.background:SetPoint("TOP", firstAnchor, "TOP", 0, padding)
 	self.background:SetPoint("BOTTOM", firstAnchor, "BOTTOM", 0, -padding)
 	self.background:SetPoint("RIGHT", previousAnchor, "RIGHT", padding, 0)
+	-- Keep the toolbar's outer frame in sync with Bag Border settings.
+	module:ApplyBagFrameStyle(self.background)
 
 	self:SetSize(self.background:GetWidth(), self.background:GetHeight())
 	self:Show()
@@ -80,13 +88,9 @@ function module:CreateToolBar(container, name)
 	toolBar:SetSize(1,1)
 
 	local bgFrame = CreateFrame("Frame", nil, toolBar)
-	--Force it to the lowest frame level to prevent layering issues
-	bgFrame:SetFrameLevel(toolBar:GetParent():GetFrameLevel())
-	bgFrame:SetClampedToScreen(true)
-
-	LUI:ApplyFrameBackdrop(bgFrame, module.bagBackdrop)
-	LUI:SetFrameBackgroundColor(bgFrame, module:RGBA("Background"))
-	LUI:SetFrameBorderColor(bgFrame, module:RGBA("Border"))
+	-- Toolbars share the outer bag frame style; their buttons use Item Border.
+	bgFrame:SetFrameLevel(toolBar:GetFrameLevel())
+	module:ApplyBagFrameStyle(bgFrame)
 
 	toolBar.slotList = {}
 	toolBar.nextIndex = 1
@@ -176,6 +180,15 @@ local function BarBarSlotOnEnter(self)
     GameTooltip:Show()
 end
 
+local function RefreshBagSlotStyle(button)
+	-- PaperDoll updates can restore Blizzard's normal and quality borders.
+	button:SetNormalTexture("")
+	local nativeBorder = button.IconBorder or _G[button:GetName().."IconBorder"]
+	if nativeBorder then nativeBorder:Hide() end
+	module:ApplyItemStyle(button)
+	module:SetToolbarSlotBorderColor(button, button:GetParent().container)
+end
+
 --- Create an ItemButton specific to the BagBar
 ---@param index number
 ---@param id number
@@ -223,23 +236,25 @@ function module:BagBarSlotButtonTemplate(index, id, name, parent)
 
 	button:RegisterEvent("INVENTORY_SEARCH_UPDATE")
 	button.UpdateTooltip = BagSlotButton_OnEnter
-	button.IconBorder:SetTexture("")
-	button.IconBorder:SetSize(1,1)
+	if button.IconBorder then button.IconBorder:Hide() end
 
 	button:SetScript("OnEvent", function(self, event, ...)
 		if event == "BAG_UPDATE_DELAYED" then
 			_G.PaperDollItemSlotButton_Update(self)
-			LUI:SetFrameBorderColor(self, module:RGBA("Border"))
+			RefreshBagSlotStyle(self)
 		elseif event == "INVENTORY_SEARCH_UPDATE" then
 			self:SetMatchesSearch(not C_Container.IsContainerFiltered(self.id));
 		else
 			PaperDollItemSlotButton_OnEvent(self, event, ...)
+			RefreshBagSlotStyle(self)
 		end
 	end)
 	button:SetScript("OnShow", PaperDollItemSlotButton_OnShow)
+	button:HookScript("OnShow", RefreshBagSlotStyle)
 	button:SetScript("OnHide", PaperDollItemSlotButton_OnHide)
 	button:SetScript("OnDragStart", function(self) PickupBagFromSlot(self.inventoryID) end)
 	button:SetScript("OnReceiveDrag", function(self) PutItemInBag(self.inventoryID) end)
+	RefreshBagSlotStyle(button)
 
 	return button
 end
