@@ -40,6 +40,10 @@ This release updates LUI for World of Warcraft Retail 12.1 while keeping the ori
 - Added clear descriptions for sticky channels and hover-window font settings.
 - Updated Friends, Guild and the remaining infotext providers for the current APIs.
 - Clock: Kept the time display fixed by showing instance information separately. Added compact difficulty labels including N, HC, M, M+ and MFlex, while keeping the full instance name and difficulty available in the tooltip.
+- Fixed Clock initialization errors by using a fallback when the display font is not yet available.
+- Fixed Clock tooltip errors for saved instances with no localized difficulty name, keeping those lockouts visible in the tooltip.
+- Fixed Armor durability updates after portals and zone transitions by refreshing on world entry and player inventory changes. Unavailable durability now displays `--` instead of an incorrect 100%.
+- Prevented individual infotext initialization and settings errors from interrupting other displays. Errors remain reported, and incomplete displays can retry initialization when the panels are rebuilt.
 - Added background and border texture and color options for the Friends and Guild windows, matching the standard LUI tooltip defaults.
 - Corrected unit-tooltip guild colors so the player's guild is green and other guilds are blue.
 - Removed Blizzard's frame-settings hint from LUI player, party and raid frame tooltips.
