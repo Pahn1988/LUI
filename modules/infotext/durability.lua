@@ -60,12 +60,20 @@ function element:UpdateDurability()
 	-- The first entry of the sorted table is the lowest value.
 	LUI:SortTable(sortedItems, itemDurability, itemSort)
 	local displayDur = (LUI:Count(itemDurability) > 0) and itemDurability[sortedItems[1]] * 100 or nil
-	element.text = format(L["InfoArmor_Display_Format"], displayDur or 100)
+	-- No readable durability is not the same as fully repaired equipment.
+	element.text = displayDur and format(L["InfoArmor_Display_Format"], displayDur)
+		or format("%s: --", ARMOR)
 	element:UpdateTooltip()
 end
 
 function element.OnClick(frame_, button_)
 	ToggleCharacter("PaperDollFrame")
+end
+
+function element:UNIT_INVENTORY_CHANGED(event, unit)
+	if unit == "player" then
+		self:UpdateDurability()
+	end
 end
 
 element.RefreshSettings = element.UpdateDurability
@@ -91,5 +99,7 @@ end
 
 function element:OnCreate()
 	element:RegisterEvent("UPDATE_INVENTORY_DURABILITY", "UpdateDurability")
+	element:RegisterEvent("PLAYER_ENTERING_WORLD", "UpdateDurability")
+	element:RegisterEvent("UNIT_INVENTORY_CHANGED")
 	element:UpdateDurability()
 end
