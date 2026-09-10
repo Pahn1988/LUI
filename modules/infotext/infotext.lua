@@ -160,16 +160,16 @@ function module:SetInfoPanels()
 	topAnchor:Show()
 	module.topAnchor = topAnchor
 
+	module:RegisterLDBCallback("LibDataBroker_DataObjectCreated", "LDBDataObjectCreated")
+
 	-- Make sure all objects created before the callback gets properly initialized.
 	for name, element in LDB:DataObjectIterator() do
-		if not elementFrames[name] then
+		if not elementFrames[name] or not elementFrames[name].LUIInitialized then
 			self:DataObjectCreated(name, element)
 		else
 			module:RegisterLDBCallback("LibDataBroker_AttributeChanged_"..name, "AttributeChanged")
 		end
 	end
-
-	module:RegisterLDBCallback("LibDataBroker_DataObjectCreated", "LDBDataObjectCreated")
 end
 
 function module:NewElement(name, ...)
@@ -223,17 +223,20 @@ end
 -- ##### LDB Handling #################################################################################################
 -- ####################################################################################################################
 
---This is used on the creation of any LDB Object
-function module:DataObjectCreated(name, element)
+local function CreateDisplay(name, element)
 	if not supportedTypes[element.type] then return end
-	if elementFrames[name] then return end
+	local frame = elementFrames[name]
+	if frame and frame.LUIInitialized then return end
 
-	local frame = CreateFrame("Button", GetDisplayFrameName(name), module.topAnchor)
-	elementFrames[name] = frame
+	-- Reuse partial frames when settings are refreshed or the module is enabled again.
+	if not frame then
+		frame = CreateFrame("Button", GetDisplayFrameName(name), module.topAnchor)
+		elementFrames[name] = frame
+	end
 	frame.name = name
 	frame.element = element
 
-	frame.text = module:SetFontString(frame, frame:GetName().."Text", "Infotext", "OVERLAY", "LEFT", "MIDDLE")
+	frame.text = frame.text or module:SetFontString(frame, frame:GetName().."Text", "Infotext", "OVERLAY", "LEFT", "MIDDLE")
 	frame.text:SetAllPoints(frame)
 	local color = db[name].Color
 	frame.text:SetTextColor(color.r, color.g, color.b, color.a)
@@ -246,8 +249,11 @@ function module:DataObjectCreated(name, element)
 	frame:SetScript("OnLeave", module.OnLeaveHandler)
 
 	--Do some element based stuff here
-	if elementStorage[name] then LUI:EmbedModule(element) end
-	if element.OnCreate then element:OnCreate(frame) end
+	if not frame.LUIOnCreateComplete then
+		if elementStorage[name] then LUI:EmbedModule(element) end
+		if element.OnCreate then element:OnCreate(frame) end
+		frame.LUIOnCreateComplete = true
+	end
 
 	module:SetPosition(name, frame)
 
@@ -262,6 +268,22 @@ function module:DataObjectCreated(name, element)
 
 	--This allow me to unregister callbacks based on element instead of filtering using the global one.
 	module:RegisterLDBCallback("LibDataBroker_AttributeChanged_"..name, "AttributeChanged")
+	frame.LUIInitialized = true
+end
+
+local function RunDisplayOperation(name, operation)
+	-- Keep the original error visible to WoW/BugGrabber without aborting other displays.
+	local ok = xpcall(operation, geterrorhandler())
+	if not ok then
+		local frame = elementFrames[name]
+		if frame then frame:Hide() end
+	end
+	return ok
+end
+
+-- This is used on the creation of any LDB object.
+function module:DataObjectCreated(name, element)
+	return RunDisplayOperation(name, function() CreateDisplay(name, element) end)
 end
 
 function module:LDBDataObjectCreated(_, name, element)
@@ -346,17 +368,23 @@ function module:Refresh()
 	table.sort(displayNames)
 	for _, name in ipairs(displayNames) do
 		local obj = elementFrames[name]
-		module:SetPosition(name, obj)
-		local color = db[name].Color
-		obj.text:SetTextColor(color.r, color.g, color.b, color.a)
-		local font = db.Fonts.Infotext
-		obj.text:SetFont(Media:Fetch("font", font.Name), font.Size, font.Flag)
-		UpdateDisplaySize(obj)
-		if obj.element.RefreshSettings then obj.element:RefreshSettings() end
-		if db[name].Enable then
-			obj:Show()
+		if not obj.LUIInitialized then
+			module:DataObjectCreated(name, obj.element)
 		else
-			obj:Hide()
+			RunDisplayOperation(name, function()
+				module:SetPosition(name, obj)
+				local color = db[name].Color
+				obj.text:SetTextColor(color.r, color.g, color.b, color.a)
+				local font = db.Fonts.Infotext
+				obj.text:SetFont(Media:Fetch("font", font.Name), font.Size, font.Flag)
+				UpdateDisplaySize(obj)
+				if obj.element.RefreshSettings then obj.element:RefreshSettings() end
+				if db[name].Enable then
+					obj:Show()
+				else
+					obj:Hide()
+				end
+			end)
 		end
 	end
 	if module.RefreshInfotips then module:RefreshInfotips() end
